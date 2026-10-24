@@ -18,7 +18,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>โปรแกรมคำนวณพิกัดบรรทุกสินค้าและค่าจัดส่ง</title>
+    <title>ระบบคำนวณพิกัดบรรทุกสินค้าและเสนอราคา</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -40,6 +40,9 @@
     </style>
 </head>
 <body class="text-gray-800 p-4 lg:p-8">
+
+<!-- Toast Notification -->
+<div id="toastNotification" class="fixed top-5 right-5 z-[150] hidden px-5 py-3 rounded-xl shadow-2xl text-white font-bold text-sm transition-all transform duration-300"></div>
 
 <!-- หน้าจอ Login เต็มจอ -->
 <div id="loginOverlay" class="fixed inset-0 bg-gray-100 flex items-center justify-center z-[100] px-4 transition-all duration-300">
@@ -71,17 +74,20 @@
     <!-- Header -->
     <div class="glass-panel rounded-2xl p-6 flex flex-col md:flex-row justify-between items-center gap-4 border-l-4 border-blue-500">
         <div>
-            <h1 class="text-3xl font-bold text-blue-800">🚛 ระบบคำนวณพิกัดบรรทุก (6 ล้อ / 10 ล้อ / เทรลเลอร์)</h1>
-            <p class="text-sm text-gray-500 mt-1">จัดสรรเที่ยวรถอัตโนมัติ ไม่เกินพิกัดบรรทุก 100% พร้อมเลือกประเภทรถที่ประหยัดต้นทุนที่สุด</p>
+            <div class="flex items-center gap-2">
+                <h1 class="text-2xl md:text-3xl font-bold text-blue-800">🚛 ระบบคำนวณพิกัดบรรทุกสินค้า</h1>
+                <span id="userRoleBadge" class="text-xs px-2.5 py-1 rounded-full font-bold uppercase tracking-wider bg-blue-100 text-blue-800">User</span>
+                <!-- สถานะการเชื่อมต่อฐานข้อมูล -->
+                <span id="globalDbStatusBadge" class="text-xs px-2.5 py-1 rounded-full font-bold flex items-center gap-1 bg-yellow-100 text-yellow-800">
+                    <span class="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></span> กำลังเชื่อมต่อฐานข้อมูล...
+                </span>
+            </div>
+            <p class="text-sm text-gray-500 mt-1">ระบบคิดราคาแยกภาค ตรวจสอบสิทธิ์เฉพาะผู้ใช้ และตรวจสอบความพร้อมของประเภทรถแต่ละโรงงาน</p>
         </div>
         <div class="flex flex-wrap gap-2 justify-center items-center">
             <span id="welcomeUserText" class="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-1.5 border">
                 👤 ผู้ใช้งาน: <b class="text-blue-700" id="currentLoggedInSale">กำลังโหลด...</b>
-                <span id="userRoleBadge" class="ml-2 text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full font-bold">User</span>
             </span>
-            <button onclick="startNewCalculation()" class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg font-bold transition shadow-sm flex items-center gap-1.5 text-sm">
-                🔄 <span>เริ่มต้นการคำนวณใหม่</span>
-            </button>
             <button onclick="openChangePasswordModal()" class="bg-blue-50 text-blue-700 px-4 py-2 rounded-lg font-semibold hover:bg-blue-100 transition shadow-sm border border-blue-150 flex items-center gap-1.5 text-sm">
                 🔑 <span>เปลี่ยนรหัสผ่าน</span>
             </button>
@@ -94,165 +100,158 @@
         </div>
     </div>
 
-    <!-- ส่วนสถานะฐานข้อมูลและดึงข้อมูล Google Sheets / แนบไฟล์สำรอง -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <!-- ส่วนสถานะฐานข้อมูลและดึงข้อมูล Google Sheets (เฉพาะ Admin) -->
+    <div id="adminDataSyncPanel" class="grid grid-cols-1 md:grid-cols-3 gap-6 admin-only-field">
         <!-- 6 ล้อ -->
-        <div class="glass-panel rounded-2xl p-5 border-l-4 border-orange-500 bg-orange-50 flex flex-col justify-between space-y-3">
+        <div class="glass-panel rounded-2xl p-6 border-l-4 border-orange-500 bg-orange-50 flex flex-col justify-between space-y-4">
             <div>
-                <h2 class="text-base font-bold text-orange-800 flex items-center gap-2">
-                    <span class="bg-orange-200 text-orange-700 p-1 rounded-md">🚚</span> รถ 6 ล้อ (4 โรงงาน)
+                <h2 class="text-base font-semibold text-orange-800 flex items-center gap-2">
+                    <span class="bg-orange-200 text-orange-700 p-1.5 rounded-lg">☁️</span> อัตราขนส่ง "รถ 6 ล้อ"
                 </h2>
-                <div class="text-xs text-orange-600 mt-1">
+                <div class="text-xs text-orange-600 mt-2">
                     <span id="importStatus6Wheel" class="font-medium">กำลังซิงค์...</span>
                 </div>
             </div>
-            <div class="border-t border-orange-200 pt-2 space-y-1">
-                <span class="text-[11px] text-orange-700 font-semibold block">แนบไฟล์สำรอง (.xlsx):</span>
-                <input type="file" id="excelUpload6Wheel" accept=".xlsx, .xls" class="block w-full text-[11px] text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-[11px] file:bg-orange-100 file:text-orange-700 hover:file:bg-orange-200 cursor-pointer bg-white border border-orange-200 rounded p-1">
+            <div class="border-t border-orange-100 pt-3 space-y-2">
+                <div class="flex gap-2 justify-between items-center">
+                    <span class="text-[11px] text-orange-500 font-bold">แนบไฟล์สำรอง (.xlsx):</span>
+                    <button onclick="fetchInitialData()" class="bg-orange-600 hover:bg-orange-700 text-white font-semibold text-[11px] px-2 py-0.5 rounded transition">🔄 ดึงคลาวด์</button>
+                </div>
+                <input type="file" id="excelUpload6Wheel" accept=".xlsx, .xls" class="block w-full text-[11px] text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-[11px] file:font-semibold file:bg-orange-100 file:text-orange-700 hover:file:bg-orange-200 cursor-pointer bg-white border border-orange-200 rounded p-1 shadow-inner">
             </div>
         </div>
+
         <!-- 10 ล้อ -->
-        <div class="glass-panel rounded-2xl p-5 border-l-4 border-blue-500 bg-blue-50 flex flex-col justify-between space-y-3">
+        <div class="glass-panel rounded-2xl p-6 border-l-4 border-teal-500 bg-teal-50 flex flex-col justify-between space-y-4">
             <div>
-                <h2 class="text-base font-bold text-blue-800 flex items-center gap-2">
-                    <span class="bg-blue-200 text-blue-700 p-1 rounded-md">🚛</span> รถ 10 ล้อ (4 โรงงาน)
+                <h2 class="text-base font-semibold text-teal-800 flex items-center gap-2">
+                    <span class="bg-teal-200 text-teal-700 p-1.5 rounded-lg">☁️</span> อัตราขนส่ง "รถ 10 ล้อ"
                 </h2>
-                <div class="text-xs text-blue-600 mt-1">
+                <div class="text-xs text-teal-600 mt-2">
                     <span id="importStatus10Wheel" class="font-medium">กำลังซิงค์...</span>
                 </div>
             </div>
-            <div class="border-t border-blue-200 pt-2 space-y-1">
-                <span class="text-[11px] text-blue-700 font-semibold block">แนบไฟล์สำรอง (.xlsx):</span>
-                <input type="file" id="excelUpload10Wheel" accept=".xlsx, .xls" class="block w-full text-[11px] text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-[11px] file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200 cursor-pointer bg-white border border-blue-200 rounded p-1">
+            <div class="border-t border-teal-100 pt-3 space-y-2">
+                <div class="flex gap-2 justify-between items-center">
+                    <span class="text-[11px] text-teal-600 font-bold">แนบไฟล์สำรอง (.xlsx):</span>
+                    <button onclick="fetchInitialData()" class="bg-teal-600 hover:bg-teal-700 text-white font-semibold text-[11px] px-2 py-0.5 rounded transition">🔄 ดึงคลาวด์</button>
+                </div>
+                <input type="file" id="excelUpload10Wheel" accept=".xlsx, .xls" class="block w-full text-[11px] text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-[11px] file:font-semibold file:bg-teal-100 file:text-teal-700 hover:file:bg-teal-200 cursor-pointer bg-white border border-teal-200 rounded p-1 shadow-inner">
             </div>
         </div>
+
         <!-- เทรลเลอร์ -->
-        <div class="glass-panel rounded-2xl p-5 border-l-4 border-purple-500 bg-purple-50 flex flex-col justify-between space-y-3">
+        <div class="glass-panel rounded-2xl p-6 border-l-4 border-purple-500 bg-purple-50 flex flex-col justify-between space-y-4">
             <div>
-                <h2 class="text-base font-bold text-purple-800 flex items-center gap-2">
-                    <span class="bg-purple-200 text-purple-700 p-1 rounded-md">🚜</span> รถเทรลเลอร์ (4 โรงงาน)
+                <h2 class="text-base font-semibold text-purple-800 flex items-center gap-2">
+                    <span class="bg-purple-200 text-purple-700 p-1.5 rounded-lg">☁️</span> อัตราขนส่ง "รถเทรลเลอร์"
                 </h2>
-                <div class="text-xs text-purple-600 mt-1">
+                <div class="text-xs text-purple-600 mt-2">
                     <span id="importStatusTrailer" class="font-medium">กำลังซิงค์...</span>
                 </div>
             </div>
-            <div class="border-t border-purple-200 pt-2 space-y-1">
-                <span class="text-[11px] text-purple-700 font-semibold block">แนบไฟล์สำรอง (.xlsx):</span>
-                <input type="file" id="excelUploadTrailer" accept=".xlsx, .xls" class="block w-full text-[11px] text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-[11px] file:bg-purple-100 file:text-purple-700 hover:file:bg-purple-200 cursor-pointer bg-white border border-purple-200 rounded p-1">
+            <div class="border-t border-purple-100 pt-3 space-y-2">
+                <div class="flex gap-2 justify-between items-center">
+                    <span class="text-[11px] text-purple-500 font-bold">แนบไฟล์สำรอง (.xlsx):</span>
+                    <button onclick="fetchInitialData()" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold text-[11px] px-2 py-0.5 rounded transition">🔄 ดึงคลาวด์</button>
+                </div>
+                <input type="file" id="excelUploadTrailer" accept=".xlsx, .xls" class="block w-full text-[11px] text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-[11px] file:font-semibold file:bg-purple-100 file:text-purple-700 hover:file:bg-purple-200 cursor-pointer bg-white border border-purple-200 rounded p-1 shadow-inner">
             </div>
         </div>
     </div>
 
     <!-- ข้อมูลทั่วไปและเงื่อนไข -->
     <div class="glass-panel rounded-2xl p-6">
-        <h2 class="text-xl font-semibold mb-4 text-gray-700 flex items-center justify-between">
-            <span class="flex items-center gap-2">
-                <span class="bg-blue-100 text-blue-600 p-2 rounded-lg">📋</span> ข้อมูลทั่วไปและเงื่อนไข
-            </span>
-            <button onclick="fetchInitialData()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs px-3 py-1.5 rounded-lg border font-semibold transition">
-                🔄 ซิงค์ข้อมูลคลาวด์ทั้งหมดใหม่
-            </button>
+        <h2 class="text-xl font-semibold mb-4 text-gray-700 flex items-center gap-2">
+            <span class="bg-blue-100 text-blue-600 p-2 rounded-lg">📋</span> ข้อมูลหน่วยงานและเงื่อนไขการจัดส่ง
         </h2>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <div>
                 <label class="block text-sm font-semibold text-red-600 mb-1">หน่วยงาน / โครงการ <span class="text-xs font-bold">(จำเป็นต้องกรอก)</span></label>
-                <input type="text" id="projectName" list="projectList" class="w-full border-red-300 border-2 rounded-lg p-2.5 input-focus text-sm font-medium bg-red-50/30" placeholder="ระบุชื่อหน่วยงาน (ห้ามว่าง)">
+                <input type="text" id="projectName" list="projectList" class="w-full border-red-300 border-2 rounded-lg p-2.5 input-focus text-sm font-medium bg-red-50/30" placeholder="ระบุชื่อหน่วยงาน">
                 <input type="text" id="saleName" class="hidden" readonly>
                 <datalist id="projectList"></datalist>
             </div>
-            <!-- กลุ่มลูกค้า -->
             <div>
                 <label class="block text-sm font-semibold text-red-600 mb-1">กลุ่มลูกค้า <span class="text-xs font-bold">(จำเป็นต้องเลือก)</span></label>
-                <select id="customerGroup" class="w-full border-red-300 border-2 rounded-lg p-2.5 input-focus text-sm font-medium bg-red-50/30">
-                    <option value="">-- กรุณาเลือกกลุ่มลูกค้า --</option>
+                <select id="customerGroup" class="w-full border-red-300 border-2 rounded-lg p-2.5 input-focus bg-red-50/20 text-sm font-medium">
+                    <option value="">-- เลือกกลุ่มลูกค้า --</option>
                     <option value="Home Builder (รับสร้างบ้าน)">Home Builder (รับสร้างบ้าน)</option>
                     <option value="Developer (ผู้พัฒนาโครงการ)">Developer (ผู้พัฒนาโครงการ)</option>
                     <option value="Contractor (ผู้รับเหมา)">Contractor (ผู้รับเหมา)</option>
                     <option value="Owner (เจ้าของอาคาร-บ้าน)">Owner (เจ้าของอาคาร-บ้าน)</option>
                 </select>
             </div>
-            <!-- ชื่อบริษัทของกลุ่มลูกค้า -->
-            <div>
-                <label class="block text-sm font-semibold text-red-600 mb-1">ชื่อบริษัท (ของกลุ่มลูกค้า) <span class="text-xs font-bold">(จำเป็นต้องกรอก)</span></label>
-                <input type="text" id="companyName" class="w-full border-red-300 border-2 rounded-lg p-2.5 input-focus text-sm font-medium bg-red-50/30" placeholder="ระบุชื่อบริษัทลูกค้า">
+            <div class="lg:col-span-2">
+                <label class="block text-sm font-semibold text-red-600 mb-1">ชื่อบริษัท ของกลุ่มลูกค้า <span class="text-xs font-bold">(จำเป็นต้องกรอก)</span></label>
+                <input type="text" id="companyName" class="w-full border-red-300 border-2 rounded-lg p-2.5 input-focus text-sm font-medium bg-red-50/30" placeholder="ระบุชื่อบริษัท/นิติบุคคล">
             </div>
-            <!-- จังหวัดและอำเภอ -->
+
             <div>
                 <label class="block text-sm font-medium text-gray-600 mb-1">จังหวัด</label>
-                <input type="text" id="province" list="provinceList" oninput="onProvinceInput()" class="w-full border-gray-300 border rounded-lg p-2.5 input-focus text-sm font-medium" placeholder="เลือกหรือพิมพ์จังหวัด">
+                <input type="text" id="province" list="provinceList" oninput="onProvinceChanged()" class="w-full border-gray-300 border rounded-lg p-2.5 input-focus text-sm" placeholder="ระบุจังหวัด">
                 <datalist id="provinceList"></datalist>
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-600 mb-1">อำเภอ</label>
-                <input type="text" id="district" list="districtList" oninput="onDistrictInput()" class="w-full border-gray-300 border rounded-lg p-2.5 input-focus text-sm font-medium" placeholder="เลือกหรือพิมพ์อำเภอ">
+                <input type="text" id="district" list="districtList" oninput="onDistrictChanged()" class="w-full border-gray-300 border rounded-lg p-2.5 input-focus text-sm" placeholder="ระบุอำเภอ">
                 <datalist id="districtList"></datalist>
             </div>
             <div>
-                <label class="block text-sm font-medium text-gray-600 mb-1">ภาคที่ตรวจพบ (จับโครงสร้างราคา)</label>
-                <input type="text" id="detectedRegion" readonly class="w-full border-gray-200 border rounded-lg p-2.5 bg-gray-100 text-blue-700 font-bold text-sm focus:outline-none cursor-not-allowed" value="กำลังตรวจหา...">
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-600 mb-1">สถานะผู้บันทึกรายการ</label>
-                <input type="text" id="saleNameDisplay" readonly class="w-full border-gray-200 border rounded-lg p-2.5 bg-gray-100 text-gray-500 font-semibold text-sm focus:outline-none cursor-not-allowed">
+                <label class="block text-sm font-medium text-gray-600 mb-1">ภาคที่ตรวจพบ (คำนวณฐานราคา)</label>
+                <input type="text" id="detectedRegion" readonly class="w-full border-gray-200 border rounded-lg p-2.5 bg-gray-100 text-blue-800 font-bold text-sm focus:outline-none cursor-not-allowed">
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-600 mb-1">โรงงานต้นทาง</label>
-                <select id="factory" class="w-full border-gray-300 border rounded-lg p-2.5 input-focus bg-white text-sm" onchange="validateFactoryTruckService(); autoLookupFreight(); calculateFreight();">
+                <select id="factory" class="w-full border-gray-300 border rounded-lg p-2.5 input-focus bg-white text-sm" onchange="onFactoryChanged()">
                     <option value="บางปะอิน">บางปะอิน</option>
                     <option value="หนองแค">หนองแค</option>
                     <option value="ระยอง">ระยอง</option>
                     <option value="สงขลา">สงขลา</option>
                 </select>
             </div>
-            
-            <!-- ประเภทรถจัดบรรทุก -->
-            <div class="lg:col-span-3 bg-gray-50 p-3 rounded-xl border border-gray-200">
-                <label class="block text-sm font-bold text-gray-700 mb-2">
-                    ประเภทรถที่ต้องการจัดบรรทุก (เลือกรถที่ต้องการจัดสรร ระบบจะคำนวณเศษเที่ยวสุดท้ายไม่ให้เกิน 100% และเลือกคันที่ประหยัดที่สุด)
-                </label>
-                <div class="flex flex-wrap gap-4 items-center" id="truckOptionsContainer">
-                    <label id="wrapOptTrailer" class="flex items-center gap-2 cursor-pointer bg-white px-3 py-1.5 rounded-lg border border-gray-200 shadow-sm hover:border-blue-400">
-                        <input type="checkbox" id="truckOpt_trailer" value="trailer" checked class="w-4 h-4 text-purple-600 rounded" onchange="handleTruckOptionChange()">
-                        <span class="text-sm font-semibold text-purple-900">🚜 รถเทรลเลอร์</span>
-                    </label>
-                    <label id="wrapOpt10wheel" class="flex items-center gap-2 cursor-pointer bg-white px-3 py-1.5 rounded-lg border border-gray-200 shadow-sm hover:border-blue-400">
-                        <input type="checkbox" id="truckOpt_10wheel" value="10wheel" checked class="w-4 h-4 text-blue-600 rounded" onchange="handleTruckOptionChange()">
-                        <span class="text-sm font-semibold text-blue-900">🚛 รถ 10 ล้อ</span>
-                    </label>
-                    <label id="wrapOpt6wheel" class="flex items-center gap-2 cursor-pointer bg-white px-3 py-1.5 rounded-lg border border-gray-200 shadow-sm hover:border-blue-400">
-                        <input type="checkbox" id="truckOpt_6wheel" value="6wheel" checked class="w-4 h-4 text-orange-600 rounded" onchange="handleTruckOptionChange()">
-                        <span class="text-sm font-semibold text-orange-900">🚚 รถ 6 ล้อ</span>
-                    </label>
-                    <span class="text-xs text-gray-500 ml-auto">*อย่างน้อย 1 ประเภท</span>
+
+            <!-- กล่องเลือกประเภทรถบรรทุก -->
+            <div class="lg:col-span-4 bg-blue-50/60 p-4 rounded-xl border border-blue-200">
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-2 gap-1">
+                    <label class="block text-sm font-bold text-blue-900">ประเภทรถจัดบรรทุก (เลือกรถที่ต้องการใช้คำนวณ)</label>
+                    <span id="factoryTruckWarning" class="text-xs text-red-600 font-bold hidden">⚠️ โรงงานที่เลือกไม่มีประเภทรถดังกล่าวให้บริการ</span>
                 </div>
-                <div id="truckServiceAlert" class="mt-2 text-xs font-bold text-red-600 hidden"></div>
+                <div class="flex flex-wrap gap-4 items-center pt-1" id="truckSelectionWrapper">
+                    <label id="truckOptWrap6w" class="inline-flex items-center gap-2 cursor-pointer bg-white px-3 py-1.5 rounded-lg border shadow-sm hover:bg-orange-50">
+                        <input type="checkbox" id="truckOpt6Wheel" value="6wheel" onchange="onTruckSelectionChange()" class="w-4 h-4 text-orange-600 rounded">
+                        <span class="text-sm font-semibold text-gray-800">🚚 รถ 6 ล้อ</span>
+                    </label>
+                    <label id="truckOptWrap10w" class="inline-flex items-center gap-2 cursor-pointer bg-white px-3 py-1.5 rounded-lg border shadow-sm hover:bg-teal-50">
+                        <input type="checkbox" id="truckOpt10Wheel" value="10wheel" onchange="onTruckSelectionChange()" class="w-4 h-4 text-teal-600 rounded">
+                        <span class="text-sm font-semibold text-gray-800">🚛 รถ 10 ล้อ</span>
+                    </label>
+                    <label id="truckOptWrapTrailer" class="inline-flex items-center gap-2 cursor-pointer bg-white px-3 py-1.5 rounded-lg border shadow-sm hover:bg-purple-50">
+                        <input type="checkbox" id="truckOptTrailer" value="trailer" checked onchange="onTruckSelectionChange()" class="w-4 h-4 text-purple-600 rounded">
+                        <span class="text-sm font-semibold text-gray-800">🚛 รถเทรลเลอร์</span>
+                    </label>
+                </div>
             </div>
 
-            <!-- ค่าขนส่งแยกประเภทรถ (เฉพาะ Admin) -->
-            <div id="adminFreightRatesPanel" class="lg:col-span-4 bg-yellow-50/60 p-4 rounded-xl border border-yellow-200 hidden">
-                <h3 class="text-sm font-bold text-yellow-900 mb-2 flex items-center gap-1.5">
-                    <span>👑 [Admin Only] 💰</span> อัตราค่าขนส่งอัตโนมัติ (บาท/เที่ยว) แยกตามประเภทรถ:
-                </h3>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                        <label class="block text-xs font-semibold text-orange-700 mb-1">🚚 ค่าขนส่ง รถ 6 ล้อ</label>
-                        <input type="number" id="freightCost_6wheel" class="w-full border-orange-300 border rounded-lg p-2 input-focus bg-white text-sm font-bold text-gray-800" placeholder="ราคา 6 ล้อ" onchange="calculateFreight()">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold text-blue-700 mb-1">🚛 ค่าขนส่ง รถ 10 ล้อ</label>
-                        <input type="number" id="freightCost_10wheel" class="w-full border-blue-300 border rounded-lg p-2 input-focus bg-white text-sm font-bold text-gray-800" placeholder="ราคา 10 ล้อ" onchange="calculateFreight()">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold text-purple-700 mb-1">🚜 ค่าขนส่ง รถเทรลเลอร์</label>
-                        <input type="number" id="freightCost_trailer" class="w-full border-purple-300 border rounded-lg p-2 input-focus bg-white text-sm font-bold text-gray-800" placeholder="ราคาเทรลเลอร์" onchange="calculateFreight()">
-                    </div>
+            <!-- กล่องแยกราคาค่าขนส่งตามประเภทรถ (Admin เท่านั้น) -->
+            <div id="freightRatesAdminBox" class="lg:col-span-4 grid grid-cols-1 md:grid-cols-3 gap-3 bg-yellow-50/70 p-3.5 rounded-xl border border-yellow-200 admin-only-field">
+                <div>
+                    <label class="block text-xs font-bold text-orange-800 mb-1">ค่าส่ง 6 ล้อ (บ./เที่ยว)</label>
+                    <input type="number" id="freightCost6w" onchange="calculateFreight(false)" class="w-full border-orange-300 border rounded-lg p-2 input-focus bg-white text-xs font-bold text-orange-700" placeholder="ราคา 6 ล้อ">
                 </div>
-                <input type="hidden" id="freightCost" value="0">
+                <div>
+                    <label class="block text-xs font-bold text-teal-800 mb-1">ค่าส่ง 10 ล้อ (บ./เที่ยว)</label>
+                    <input type="number" id="freightCost10w" onchange="calculateFreight(false)" class="w-full border-teal-300 border rounded-lg p-2 input-focus bg-white text-xs font-bold text-teal-700" placeholder="ราคา 10 ล้อ">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-purple-800 mb-1">ค่าส่ง เทรลเลอร์ (บ./เที่ยว)</label>
+                    <input type="number" id="freightCostTrailer" onchange="calculateFreight(false)" class="w-full border-purple-300 border rounded-lg p-2 input-focus bg-white text-xs font-bold text-purple-700" placeholder="ราคาเทรลเลอร์">
+                </div>
             </div>
 
             <div>
                 <label class="block text-sm font-medium text-gray-600 mb-1">การกระจายค่าขนส่งลงสินค้า</label>
-                <select id="freightAllocationMode" class="w-full border-indigo-300 border rounded-lg p-2.5 input-focus bg-indigo-50 text-indigo-800 font-medium text-sm" onchange="calculateFreight()">
+                <select id="freightAllocationMode" class="w-full border-indigo-300 border rounded-lg p-2.5 input-focus bg-indigo-50 text-indigo-800 font-medium text-sm" onchange="calculateFreight(false)">
                     <option value="all">เฉลี่ยใส่ทุกรายการสินค้า</option>
                     <option value="Block G2">คิดเฉพาะกลุ่ม Block G2</option>
                     <option value="Block G4">คิดเฉพาะกลุ่ม Block G4</option>
@@ -267,19 +266,16 @@
                 </select>
             </div>
             <div>
-                <label class="block text-sm font-medium text-gray-600 mb-1">ประเภทการจัดส่ง <span id="deliveryLockBadge" class="text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-normal">ตามสิทธิ์</span></label>
-                <select id="deliveryType" class="w-full border-gray-300 border rounded-lg p-2.5 input-focus bg-white text-sm" onchange="calculateFreight()">
-                    <option value="จัดส่งสินค้าให้">จัดส่งสินค้าให้</option>
-                    <option value="รับสินค้าเอง">รับสินค้าเอง</option>
-                </select>
+                <label class="block text-sm font-medium text-gray-600 mb-1">ประเภทการจัดส่ง</label>
+                <select id="deliveryType" class="w-full border-gray-300 border rounded-lg p-2.5 input-focus bg-white text-sm" onchange="calculateFreight(false)"></select>
             </div>
-            <!-- เงื่อนไขการชำระเงินที่ปรับปรุงให้แสดงผลตรงกับสิทธิ์ที่ได้รับอย่างแม่นยำ -->
             <div>
-                <label class="block text-sm font-semibold text-blue-700 mb-1">
-                    เงื่อนไขการชำระเงิน <span id="paymentLockBadge" class="text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-normal">ตามสิทธิ์ผู้ใช้</span>
-                </label>
-                <select id="paymentCondition" class="w-full border-blue-400 border rounded-lg p-2.5 input-focus bg-white text-sm font-medium text-blue-900" onchange="updateCartPrices()">
-                </select>
+                <label class="block text-sm font-medium text-gray-600 mb-1">เงื่อนไขการชำระเงิน</label>
+                <select id="paymentCondition" class="w-full border-gray-300 border rounded-lg p-2.5 input-focus bg-white text-sm" onchange="updateCartPrices()"></select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">ตัวแทนจำหน่าย (ผู้เสนอราคา)</label>
+                <input type="text" id="dealerFullNameDisplay" readonly class="w-full border-gray-200 border rounded-lg p-2.5 bg-gray-100 text-gray-700 font-semibold text-sm focus:outline-none cursor-not-allowed">
             </div>
         </div>
     </div>
@@ -314,20 +310,22 @@
                         <th class="p-3 text-center">หมวดหมู่</th>
                         <th class="p-3 text-right">จำนวน</th>
                         <th class="p-3 text-center">หน่วย</th>
-                        <th class="p-3 text-right admin-only-cell">ราคา/หน่วย (สุทธิ)</th>
+                        <th class="p-3 text-right admin-cell">ราคาฐาน/หน่วย</th>
+                        <th class="p-3 text-right admin-cell">ราคาสุทธิ/หน่วย</th>
                         <th class="p-3 text-center">จัดการ</th>
                     </tr>
                 </thead>
                 <tbody id="cartTableBody" class="divide-y divide-gray-100 bg-white">
-                    <tr><td colspan="6" class="p-4 text-center text-gray-400">ยังไม่มีรายการสินค้าในตาราง</td></tr>
+                    <tr><td colspan="7" class="p-4 text-center text-gray-400">ยังไม่มีรายการสินค้าในตาราง</td></tr>
                 </tbody>
             </table>
         </div>
+
         <div class="mt-8 flex flex-col md:flex-row justify-center items-center gap-4">
-            <button onclick="calculateFreight()" class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-lg px-12 py-4 rounded-full font-bold hover:shadow-lg hover:scale-105 transition transform duration-200 w-full md:w-auto">
+            <button onclick="calculateFreight(true)" class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-lg px-12 py-4 rounded-full font-bold hover:shadow-lg hover:scale-105 transition transform duration-200 w-full md:w-auto">
                 🚀 คำนวณพิกัดบรรทุกและค่าใช้จ่าย
             </button>
-            <button onclick="startNewCalculation()" class="bg-amber-500 hover:bg-amber-600 text-white text-lg px-8 py-4 rounded-full font-bold hover:shadow-lg hover:scale-105 transition transform duration-200 w-full md:w-auto flex items-center justify-center gap-2">
+            <button onclick="clearAll()" class="bg-gray-500 hover:bg-gray-600 text-white text-lg px-8 py-4 rounded-full font-bold hover:shadow-lg hover:scale-105 transition transform duration-200 w-full md:w-auto flex items-center justify-center gap-2">
                 🔄 เริ่มต้นการคำนวณใหม่
             </button>
         </div>
@@ -336,7 +334,7 @@
     <!-- Result Area -->
     <div id="resultArea" class="glass-panel rounded-2xl p-8 print-area hidden relative">
         <div id="actionButtons" class="absolute top-6 right-6 flex flex-wrap gap-3 justify-end z-10 bg-white/80 p-2 rounded-lg">
-            <button onclick="saveToGoogleSheets()" id="btnSaveDB" class="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-700 shadow flex items-center gap-2 transition">
+            <button onclick="saveToGoogleSheets(false)" id="btnSaveDB" class="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-700 shadow flex items-center gap-2 transition">
                 💾 <span>บันทึกลงส่วนกลาง</span>
             </button>
             <button onclick="savePDF()" class="bg-red-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-red-600 shadow flex items-center gap-2">
@@ -359,23 +357,18 @@
             </div>
             <p class="text-xs text-gray-400 mt-2" id="printTimestamp"></p>
         </div>
+        
         <div class="grid grid-cols-2 md:grid-cols-6 gap-4 mb-8 bg-blue-50 p-4 rounded-xl border border-blue-100">
-            <div id="outDealerWrap"><span class="block text-xs text-gray-500">ตัวแทนจำหน่าย (FullName)</span><strong class="text-indigo-800 text-sm block break-words" id="outDealer"></strong></div>
+            <div><span class="block text-xs text-gray-500">ตัวแทนจำหน่าย</span><strong class="text-indigo-800 text-sm block break-words" id="outDealer"></strong></div>
             <div class="col-span-2 md:col-span-2"><span class="block text-xs text-gray-500">หน่วยงาน / โครงการ</span><strong class="text-blue-800 text-base block break-words" id="outProject"></strong></div>
-            <div><span class="block text-xs text-gray-500">กลุ่มลูกค้า / บริษัท</span><strong class="text-gray-800 block text-xs"><span id="outCustGroup"></span> | <span id="outCompany"></span></strong></div>
-            <div><span class="block text-xs text-gray-500">โรงงาน / ประเภทจัดส่ง</span><strong class="text-gray-800 block text-sm"><span id="outFactory"></span> | <span id="outDeliveryType" class="text-red-600 text-base font-bold"></span></strong></div>
-            <div><span class="block text-xs text-gray-500">ชำระเงิน / น้ำมัน</span><strong class="text-gray-800 block text-sm"><span id="outTerm"></span> | <span id="outFuel"></span> บ./ล.</strong></div>
-            <div class="col-span-2 md:col-span-2">
-                <span class="block text-xs text-gray-500">รถรวม / ประเภท</span>
-                <strong class="text-gray-800 block text-sm">
-                    <span class="text-indigo-600 text-lg font-bold" id="outTotalTrucks"></span> คัน
-                    <span class="text-xs font-semibold text-gray-600 block mt-0.5" id="outTruckSummary"></span>
-                </strong>
-            </div>
+            <div><span class="block text-xs text-gray-500">กลุ่มลูกค้า / บริษัท</span><strong class="text-gray-800 block text-xs break-words" id="outCustomerGroup"></strong></div>
+            <div><span class="block text-xs text-gray-500">โรงงาน / การจัดส่ง</span><strong class="text-gray-800 block text-sm"><span id="outFactory"></span> | <span id="outDeliveryType" class="text-red-600 font-bold"></span></strong></div>
+            <div><span class="block text-xs text-gray-500">รถรวม / ประเภท</span><strong class="text-gray-800 block text-sm"><span class="text-indigo-600 text-lg" id="outTotalTrucks"></span> คัน | <span id="outTruck"></span></strong></div>
         </div>
+
         <h3 class="font-bold text-lg mb-3 text-gray-800 border-l-4 border-blue-500 pl-2 flex justify-between items-end">
             <span>1. สรุปรายการสินค้าที่สั่งซื้อ</span>
-            <span class="text-xs text-gray-400 font-normal pr-2">*(จำนวน และราคาต่อหน่วยรวมค่าขนส่ง)*</span>
+            <span class="text-xs text-gray-400 font-normal pr-2">*(สามารถแก้ไขจำนวนในตารางได้)*</span>
         </h3>
         <div class="overflow-x-auto mb-8 rounded-lg border border-gray-200">
             <table class="w-full text-sm text-left">
@@ -385,45 +378,48 @@
                         <th class="p-3 border-b text-right text-blue-700">จำนวน (แก้ไขได้)</th>
                         <th class="p-3 border-b text-right text-purple-600">ของแถม 1% (แก้ไขได้)</th>
                         <th class="p-3 border-b text-center">หน่วย</th>
-                        <th class="p-3 border-b text-right text-indigo-600 admin-only-cell">ราคา/หน่วย (แก้ไขได้)</th>
-                        <th class="p-3 border-b text-right admin-only-cell">มูลค่ารวม (บาท)</th>
-                        <th class="p-3 border-b text-right text-orange-600 admin-only-cell">ค่าขนส่งเฉลี่ย/หน่วย</th>
+                        <th class="p-3 border-b text-right text-indigo-600 admin-cell">ราคา/หน่วย (แก้ไขได้)</th>
+                        <th class="p-3 border-b text-right admin-cell">มูลค่ารวม (บาท)</th>
+                        <th class="p-3 border-b text-right text-orange-600 admin-cell">ค่าขนส่งเฉลี่ย/หน่วย (แก้ไขได้)</th>
                         <th class="p-3 border-b text-right bg-green-50 text-green-800">ราคา/หน่วย+ค่าขนส่ง</th>
                     </tr>
                 </thead>
                 <tbody id="outProductTable" class="divide-y divide-gray-100"></tbody>
             </table>
         </div>
+
         <div class="flex justify-between items-end mb-3 border-l-4 border-indigo-500 pl-2" id="truckPlanHeaderWrap">
-            <h3 class="font-bold text-lg text-gray-800">2. แผนการจัดเที่ยวรถ (พิกัดบรรทุกมาตรฐานไม่เกิน 100%)</h3>
+            <h3 class="font-bold text-lg text-gray-800">2. แผนการจัดเที่ยวรถ</h3>
             <button id="toggleTruckPlanBtn" onclick="toggleTruckPlan()" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded border shadow-sm transition editable-hint">👁️ ซ่อนแผนการจัดส่ง</button>
         </div>
         <div id="outTruckDetails" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 transition-all"></div>
+
         <h3 class="font-bold text-lg mb-3 text-gray-800 border-l-4 border-green-500 pl-2">3. สรุปค่าใช้จ่าย</h3>
         <div class="flex flex-col md:flex-row justify-between items-start gap-6 mb-8" style="page-break-inside: avoid;">
             <div class="w-full md:w-1/2">
-                <!-- ข้อมูลสำหรับโอนเงิน: ซ่อนสำหรับ Role User และแสดงเฉพาะ Role Admin -->
-                <div id="bankAccountDiv" class="bg-blue-50 border border-blue-200 p-5 rounded-xl relative transition-all shadow-sm hidden">
+                <!-- ข้อมูลสำหรับโอนเงิน (แสดงเฉพาะเมื่อเป็น Admin) -->
+                <div id="bankAccountDiv" class="bg-blue-50 border border-blue-200 p-5 rounded-xl relative transition-all shadow-sm admin-only-field">
                     <button onclick="toggleBankDisplay()" class="absolute top-3 right-3 text-xs bg-white border border-gray-300 hover:bg-gray-100 text-gray-600 px-2 py-1 rounded shadow-sm transition editable-hint">ซ่อน</button>
-                    <div class="font-bold text-blue-800 mb-2 flex items-center gap-2"><span class="text-xl">💳</span> [Admin Only] ข้อมูลสำหรับโอนเงิน</div>
+                    <div class="font-bold text-blue-800 mb-2 flex items-center gap-2"><span class="text-xl">💳</span> ข้อมูลสำหรับโอนเงิน</div>
                     <div class="text-sm text-gray-700 leading-relaxed">ชื่อบัญชี: <b>บจก.ควอลิตี้คอนสตรัคชั่นโปรดัคส์</b><br>ธนาคารกสิกรไทย สาขาประตูน้ำพระอินทร์<br>บัญชีออมทรัพย์ เลขที่: <span class="font-bold text-lg text-blue-700 tracking-wider">146-2-50777-8</span></div>
                 </div>
-                <button id="showBankBtn" onclick="toggleBankDisplay()" class="hidden mt-2 text-sm bg-blue-50 hover:bg-blue-100 text-blue-600 px-4 py-2 rounded-lg border border-blue-200 shadow-sm transition editable-hint">💳 แสดงเลขที่บัญชี</button>
+                <button id="showBankBtn" onclick="toggleBankDisplay()" class="hidden mt-2 text-sm bg-blue-50 hover:bg-blue-100 text-blue-600 px-4 py-2 rounded-lg border border-blue-200 shadow-sm transition editable-hint admin-only-field">💳 แสดงเลขที่บัญชี</button>
             </div>
+            
             <div class="bg-gray-50 p-6 rounded-xl border border-gray-200 w-full md:w-1/2 max-w-md shadow-sm">
-                <!-- เฉพาะ Admin ที่เห็นต้นทุนแยกย่อยสินค้าและค่าขนส่ง -->
-                <div class="flex justify-between mb-2 text-gray-600 admin-only-flex"><span>มูลค่าสินค้าสุทธิ:</span> <span id="sumProductNet" class="font-semibold text-gray-800"></span></div>
-                <div class="flex justify-between mb-2 text-gray-600 admin-only-flex"><span>ค่าขนส่งรวม:</span> <span id="sumFreight" class="font-semibold text-orange-600"></span></div>
+                <!-- ข้อมูลเฉพาะ Admin -->
+                <div class="flex justify-between mb-2 text-gray-600 admin-row"><span>มูลค่าสินค้าสุทธิ:</span> <span id="sumProductNet" class="font-semibold text-gray-800"></span></div>
+                <div class="flex justify-between mb-2 text-gray-600 admin-row"><span>ค่าขนส่งรวม:</span> <span id="sumFreight" class="font-semibold text-orange-600"></span></div>
                 
-                <!-- ยอดก่อน VAT และ VAT 7% แสดงทั้ง Role User และ Role Admin -->
+                <!-- แสดงสำหรับทุก Role ทั้ง Admin และ User -->
                 <div class="flex justify-between mb-2 text-gray-600 border-t border-gray-300 pt-2"><span>รวมก่อน VAT:</span> <span id="sumBeforeVat" class="font-semibold text-gray-800"></span></div>
                 <div class="flex justify-between mb-2 text-gray-600 border-b border-gray-300 pb-2"><span>VAT 7% <br><small class="text-gray-400" id="vatDetailText"></small>:</span> <span id="sumVat" class="font-semibold text-gray-800 mt-auto"></span></div>
-                
                 <div class="flex justify-between items-center mt-4 pt-2"><span class="font-bold text-xl text-gray-800">ยอดรวมทั้งสิ้น:</span> <span id="sumTotal" class="font-bold text-xl text-blue-700"></span></div>
                 <div class="flex justify-between items-center mt-2"><span class="font-bold text-lg text-red-600">หัก ยอดลดหนี้:</span> <div class="flex items-center"><input type="number" id="creditNoteInput" value="0" min="0" onchange="updateFinalPayment()" oninput="this.setAttribute('value', this.value)" class="w-32 border border-red-300 rounded px-2 py-1 text-right text-lg font-bold text-red-600 bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 shadow-inner"></div></div>
                 <div class="flex justify-between items-center mt-4 bg-green-100 border border-green-300 p-3 rounded-lg"><span class="font-bold text-xl text-green-800">ยอดเงินที่ต้องชำระ:</span> <span id="finalPayment" class="font-bold text-2xl text-green-700"></span></div>
             </div>
         </div>
+
         <div class="mt-12 pt-8 border-t-2 border-gray-300 grid grid-cols-1 md:grid-cols-2 gap-8 text-center" style="page-break-inside: avoid;">
             <div class="flex flex-col items-center justify-end"><p class="font-bold text-gray-800 mb-10 text-lg">ผู้เสนอราคา / จัดทำเอกสาร</p><div class="w-64 border-b border-gray-400 mb-2"></div><p class="text-sm text-gray-600 mb-1">( <span class="inline-block w-48 border-b border-dotted border-gray-400"></span> )</p><p class="text-sm text-gray-600 mb-1">ตำแหน่ง: <span class="inline-block w-48 border-b border-dotted border-gray-400"></span></p><p class="text-sm text-gray-600">วันที่: <span class="inline-block w-48 border-b border-dotted border-gray-400"></span></p></div>
             <div class="flex flex-col items-center justify-end mt-8 md:mt-0"><p class="font-bold text-blue-800 mb-10 text-lg">ลงนามยืนยันการสั่งซื้อสินค้า</p><div class="w-64 border-b border-gray-400 mb-2"></div><p class="text-sm text-gray-600 mb-1">( <span class="inline-block w-48 border-b border-dotted border-gray-400"></span> )</p><p class="text-sm text-gray-600 mb-1">ตำแหน่ง: <span class="inline-block w-48 border-b border-dotted border-gray-400"></span></p><p class="text-sm text-gray-600">วันที่: <span class="inline-block w-48 border-b border-dotted border-gray-400"></span></p></div>
@@ -431,41 +427,21 @@
     </div>
 </div>
 
-<!-- Input รับค่า Configuration -->
-<div class="hidden">
-    <input type="text" id="dealerName" readonly value="">
-    <input type="checkbox" id="showDealerInDoc" checked>
-    <input type="number" id="fuelPrice" readonly value="0">
-    <input type="number" id="basePriceBlockG2" readonly value="0">
-    <input type="number" id="basePriceBlockAMinus" readonly value="0">
-    <input type="number" id="basePriceBlockG4" readonly value="0">
-    <input type="number" id="basePriceLintel75" readonly value="0">
-    <input type="number" id="basePriceLintelOther" readonly value="0">
-    <input type="number" id="basePriceCounter" readonly value="0">
-    <input type="number" id="basePriceCemQG" readonly value="0">
-    <input type="number" id="basePriceCemQC" readonly value="0">
-    <input type="number" id="basePriceCemTiger" readonly value="0">
-    <input type="number" id="basePriceDecor" readonly value="0">
-    <input type="number" id="basePriceDecorPolka" readonly value="0">
-    <input type="number" id="basePriceDecorUltra" readonly value="0">
-    <input type="number" id="basePriceMetalStrap" readonly value="0">
-</div>
-
-<!-- Modal เปลี่ยนรหัสผ่าน -->
+<!-- Modal สำหรับการเปลี่ยนรหัสผ่าน -->
 <div id="changePasswordModal" class="fixed inset-0 bg-gray-900 bg-opacity-50 hidden items-center justify-center z-50 p-4 backdrop-blur-sm">
     <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl relative text-left">
         <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">🔑 เปลี่ยนรหัสผ่านเข้าใช้งาน</h2>
         <form id="changePasswordForm" onsubmit="handleChangePassword(event)" class="space-y-4">
             <div>
-                <label class="block text-xs font-bold text-gray-600 mb-1">รหัสผ่านเดิม</label>
+                <label class="block text-xs font-bold text-gray-600 mb-1">รหัสผ่านเดิม (Old Password)</label>
                 <input type="password" id="oldPassword" required class="w-full border rounded-lg p-2.5 text-sm input-focus" placeholder="กรอกรหัสผ่านปัจจุบัน">
             </div>
             <div>
-                <label class="block text-xs font-bold text-gray-600 mb-1">รหัสผ่านใหม่</label>
+                <label class="block text-xs font-bold text-gray-600 mb-1">รหัสผ่านใหม่ (New Password)</label>
                 <input type="password" id="newPassword" required class="w-full border rounded-lg p-2.5 text-sm input-focus" placeholder="กรอกรหัสผ่านใหม่">
             </div>
             <div>
-                <label class="block text-xs font-bold text-gray-600 mb-1">ยืนยันรหัสผ่านใหม่</label>
+                <label class="block text-xs font-bold text-gray-600 mb-1">ยืนยันรหัสผ่านใหม่ (Confirm New Password)</label>
                 <input type="password" id="confirmNewPassword" required class="w-full border rounded-lg p-2.5 text-sm input-focus" placeholder="ยืนยันรหัสผ่านใหม่อีกครั้ง">
             </div>
             <div id="changePassErrorMessage" class="text-red-500 text-xs font-semibold hidden text-center"></div>
@@ -478,21 +454,18 @@
     </div>
 </div>
 
-<!-- Modal ประวัติส่วนกลาง -->
+<!-- Server History Modal -->
 <div id="historyModal" class="fixed inset-0 bg-gray-900 bg-opacity-50 hidden items-center justify-center z-50 p-4 backdrop-blur-sm">
     <div class="bg-white rounded-2xl w-full max-w-6xl max-h-[85vh] flex flex-col shadow-2xl relative">
         <div class="p-6 border-b flex justify-between items-center bg-gray-50 rounded-t-2xl">
-            <h2 class="text-2xl font-bold text-blue-800" id="historyModalHeaderTitle">☁️ ประวัติการคำนวณย้อนหลัง (จากส่วนกลาง)</h2>
+            <div class="flex items-center gap-3">
+                <h2 class="text-2xl font-bold text-blue-800">☁️ ประวัติการคำนวณย้อนหลัง (จากส่วนกลาง)</h2>
+                <button onclick="fetchServerHistory(true)" class="bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1">🔄 รีเฟรชสด</button>
+            </div>
             <button onclick="closeHistory()" class="text-gray-400 hover:text-red-500 transition"><svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
         </div>
-        <div class="px-6 pt-4 flex gap-3">
-            <div class="relative flex-1">
-                <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">🔍</span>
-                <input type="text" id="historySearchInput" oninput="filterServerHistory()" placeholder="ค้นหาจากชื่อหน่วยงาน บริษัท หรือ วันที่..." class="w-full border-gray-300 border rounded-lg py-2.5 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm shadow-sm">
-            </div>
-            <button onclick="fetchServerHistory(true)" class="bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold px-4 py-2 rounded-lg border border-blue-200 text-xs transition">
-                ⚡ รีเฟรชทันที
-            </button>
+        <div class="px-6 pt-4">
+            <div class="relative"><span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">🔍</span><input type="text" id="historySearchInput" oninput="filterServerHistory()" placeholder="ค้นหาจากชื่อหน่วยงาน พนักงานขาย หรือ วันที่..." class="w-full border-gray-300 border rounded-lg py-2.5 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm shadow-sm"></div>
         </div>
         <div class="overflow-y-auto p-6 pt-4 flex-1">
             <table class="w-full text-sm text-left border-collapse">
@@ -500,66 +473,99 @@
                     <tr>
                         <th class="p-3 border-b">วันที่ทำรายการ</th>
                         <th class="p-3 border-b">หน่วยงาน</th>
-                        <th class="p-3 border-b">กลุ่มลูกค้า / บริษัท</th>
                         <th class="p-3 border-b text-center">ประเภทจัดส่ง</th>
-                        <th class="p-3 border-b">รายการสินค้า</th>
-                        <th class="p-3 border-b text-center">Sale / ตัวแทน</th>
-                        <th class="p-3 border-b text-center" style="min-width: 120px;">จัดการ</th>
+                        <th class="p-3 border-b">รายการสินค้า (ขนาด/จำนวน)</th>
+                        <th class="p-3 border-b text-center">ตัวแทนจำหน่าย (Sale)</th>
+                        <th class="p-3 border-b text-center" style="min-width: 140px;">จัดการ</th>
                     </tr>
                 </thead>
                 <tbody id="historyTableBody" class="divide-y divide-gray-100">
-                    <tr><td colspan="7" class="text-center p-8 text-gray-500 font-bold">⏳ พร้อมโหลดข้อมูล...</td></tr>
+                    <tr><td colspan="6" class="text-center p-8 text-gray-500 font-bold">⏳ กำลังโหลดข้อมูล...</td></tr>
                 </tbody>
             </table>
         </div>
     </div>
 </div>
 
-<!-- Modal ดูข้อมูลย้อนหลัง -->
-<div id="viewHistoryModal" class="fixed inset-0 bg-gray-900 bg-opacity-50 hidden items-center justify-center z-[60] p-4 backdrop-blur-sm">
-    <div class="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl">
-        <div class="p-6 border-b flex justify-between items-center bg-gray-50 rounded-t-2xl">
-            <h2 class="text-xl font-bold text-gray-800 flex items-center gap-2">📄 <span id="viewHistTitle">รายละเอียดรายการย้อนหลัง</span></h2>
-            <button onclick="closeViewHistory()" class="text-gray-400 hover:text-red-500 transition"><svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+<!-- Modal ดูรายละเอียดใบเสนอราคา (Quotation Detail Preview Modal) -->
+<div id="quotationDetailModal" class="fixed inset-0 bg-gray-900 bg-opacity-60 hidden items-center justify-center z-[110] p-4 backdrop-blur-sm">
+    <div class="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl relative overflow-hidden">
+        <div class="p-5 border-b bg-blue-50 flex justify-between items-center">
+            <h3 class="text-xl font-bold text-blue-900 flex items-center gap-2">
+                <span>📄</span> รายละเอียดใบเสนอราคา / คำนวณพิกัดบรรทุก
+            </h3>
+            <button onclick="closeQuotationModal()" class="text-gray-400 hover:text-red-500 text-2xl font-bold">&times;</button>
         </div>
-        <div class="overflow-y-auto p-6 flex-1 text-sm text-gray-700 space-y-4" id="viewHistoryContent"></div>
-        <div class="p-4 border-t bg-gray-50 rounded-b-2xl text-right">
-            <button onclick="closeViewHistory()" class="bg-gray-500 text-white px-6 py-2 rounded-lg font-bold hover:bg-gray-600 transition shadow">ปิดหน้าต่าง</button>
+        <div class="overflow-y-auto p-6 flex-1 space-y-6 text-sm" id="quotationModalBody">
+            <!-- Dynamic Content -->
+        </div>
+        <div class="p-4 border-t bg-gray-50 flex justify-end">
+            <button onclick="closeQuotationModal()" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold px-5 py-2 rounded-lg text-sm transition">ปิดหน้าต่าง</button>
         </div>
     </div>
 </div>
 
 <script>
-// Web App Google Apps Script Endpoint URL
-const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzRdRppjFfjKHjAnyqWYxYP6FI8PW260KPYpySYJfNKa9P6t5P8tk4HdHMVeMNj2CKb/exec';
-
-const ALL_PAYMENT_OPTIONS = [
-    { value: 'เงินสด', label: 'เงินสด (ส่วนลด 2% จากราคาสินค้าต่อหน่วย)' },
-    { value: 'โอนเงินก่อนส่งสินค้า', label: 'โอนเงินก่อนส่งสินค้า' },
-    { value: 'เงินเชื่อ', label: 'เงินเชื่อ' },
-    { value: 'เครดิต 60 วัน', label: 'เครดิต 60 วัน' },
-    { value: '-', label: '-' }
-];
+// Web App Script URL ฝั่ง Google Apps Script
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw22EbkQYC1tsLnnNPXkBNGNYIwXh7viO3GTNRipWg9R_2SmaFQ72TZ0yqvHzQaoM0WCQ/exec';
 
 let currentUser = null;
-let basePricesByRegionDB = {};
-let factoryTruckRulesDB = {};
+let basePricesByRegion = {};
+let provinceRegions = {};
+let factoryTrucksMap = {
+    'บางปะอิน': ['6wheel', '10wheel', 'trailer'],
+    'หนองแค': ['10wheel', 'trailer'],
+    'ระยอง': ['6wheel', 'trailer'],
+    'สงขลา': ['10wheel', 'trailer']
+};
+
 let trailerFreightDB = {};
 let tenWheelFreightDB = {};
 let sixWheelFreightDB = {};
+let isDbConnected = false; // ตรวจสอบสถานะการเชื่อมต่อ
+
 let locationMap = {
-    provToDist: {},
-    distToProv: {},
-    distToRegion: {}
+    districtsByProvince: {},
+    provincesByDistrict: {},
+    allProvinces: new Set(),
+    allDistricts: new Set()
 };
+
 let globalServerHistory = [];
+let isHistoryLoaded = false;
 let cart = [];
 window.currentResultItems = [];
 window.currentTruckPlanText = '';
 window.currentGrandTotal = 0;
 window.isTruckPlanVisible = true;
 let isBankVisible = true;
+let fuelPriceVal = 31.00;
 
+// แสดงการแจ้งเตือน Toast Message
+function showToast(message, type = 'success') {
+    const toast = document.getElementById('toastNotification');
+    toast.innerText = message;
+    toast.className = `fixed top-5 right-5 z-[150] px-5 py-3 rounded-xl shadow-2xl text-white font-bold text-sm transition-all transform duration-300 ${
+        type === 'success' ? 'bg-green-600' : type === 'error' ? 'bg-red-600' : 'bg-blue-600'
+    }`;
+    toast.classList.remove('hidden');
+    setTimeout(() => { toast.classList.add('hidden'); }, 3500);
+}
+
+// อัปเดตสถานะการเชื่อมต่อฐานข้อมูลบนหน้าจอ
+function updateDbConnectionStatus(connected, message = '') {
+    isDbConnected = connected;
+    const badge = document.getElementById('globalDbStatusBadge');
+    if (connected) {
+        badge.className = 'text-xs px-2.5 py-1 rounded-full font-bold flex items-center gap-1 bg-green-100 text-green-800';
+        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-green-500"></span> เชื่อมต่อฐานข้อมูลแล้ว`;
+    } else {
+        badge.className = 'text-xs px-2.5 py-1 rounded-full font-bold flex items-center gap-1 bg-red-100 text-red-800';
+        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-red-500"></span> ${message || 'ยังไม่เชื่อมต่อฐานข้อมูล'}`;
+    }
+}
+
+// รายการสินค้าและพิกัดบรรทุกทั้งหมด
 const productData = [
     { id: 'b2_75', cat: 'Block G2', name: 'Block 20x60x7.5 G2', vol: 0.009, max6: 1200, max10: 2000, maxT: 4554, unit: 'ก้อน' },
     { id: 'b2_10', cat: 'Block G2', name: 'Block 20x60x10 G2', vol: 0.012, max6: 900, max10: 1500, maxT: 3416, unit: 'ก้อน' },
@@ -576,384 +582,296 @@ const productData = [
     { id: 'b4_175', cat: 'Block G4', name: 'Block 20x60x17.5 G4', vol: 0.021, max6: 480, max10: 800, maxT: 1600, unit: 'ก้อน' },
     { id: 'b4_20', cat: 'Block G4', name: 'Block 20x60x20 G4', vol: 0.024, max6: 420, max10: 700, maxT: 1400, unit: 'ก้อน' },
     { id: 'b4_25', cat: 'Block G4', name: 'Block 20x60x25 G4', vol: 0.030, max6: 360, max10: 600, maxT: 1200, unit: 'ก้อน' },
-    ...[120,150,180,210,240,270,300,330,360,400].map(len => ({
-        id: `l75_${len}`, cat: 'Lintel 7.5cm', name: `Lintel 20x${len}x7.5`,
-        vol: 0.2 * (len/100) * 0.075,
-        max6: len <= 180 ? 300 : len <= 240 ? 250 : len <= 270 ? 200 : 150,
-        max10: Math.round((len <= 180 ? 300 : len <= 240 ? 250 : len <= 270 ? 200 : 150) * 1.6),
-        maxT: len == 120 ? 2000 : len == 150 ? 1500 : len == 180 ? 1250 : len == 210 ? 1000 : len == 240 ? 950 : len == 270 ? 800 : len == 300 ? 720 : 540,
-        unit: 'ท่อน'
-    })),
-    ...[120,150,180,210,240,270,300,330,360].map(len => ({
-        id: `l10_${len}`, cat: 'Lintel 10-20cm', name: `Lintel 20x${len}x10`,
-        vol: 0.2 * (len/100) * 0.1,
-        max6: len <= 150 ? 300 : len <= 180 ? 250 : len <= 240 ? 200 : len <= 270 ? 150 : len <= 300 ? 150 : 120,
-        max10: Math.round((len <= 150 ? 300 : len <= 180 ? 250 : len <= 240 ? 200 : len <= 270 ? 150 : len <= 300 ? 150 : 120) * 1.6),
-        maxT: len == 120 ? 1500 : len == 150 ? 1100 : len == 180 ? 900 : len == 210 ? 750 : len == 240 ? 700 : len == 270 ? 600 : len == 300 ? 540 : len == 330 ? 510 : 450,
-        unit: 'ท่อน'
-    })),
-    { id: 'ct_90', cat: 'Counter', name: 'COUNTER TOP (CT 56 x 90.5 x 7.5)', vol: 0.03801, max6: 120, max10: 200, maxT: 640, unit: 'แผ่น' },
-    { id: 'ct_120', cat: 'Counter', name: 'COUNTER TOP (CT 56 x 120 x 7.5)', vol: 0.0504, max6: 120, max10: 200, maxT: 576, unit: 'แผ่น' },
-    { id: 'ct_150', cat: 'Counter', name: 'COUNTER TOP (CT 56 x 150 x 7.5)', vol: 0.063, max6: 80, max10: 140, maxT: 448, unit: 'แผ่น' },
-    { id: 'ct_200', cat: 'Counter', name: 'COUNTER TOP (CT 56 x 200 x 7.5)', vol: 0.084, max6: 50, max10: 90, maxT: 320, unit: 'แผ่น' },
-    { id: 'cem_qg', cat: 'ปูน', name: 'ปูนก่อ Qcon', vol: 1, max6: 160, max10: 280, maxT: 640, unit: 'ถุง' },
-    { id: 'cem_qc', cat: 'ปูน', name: 'ปูนฉาบ Qcon', vol: 1, max6: 160, max10: 280, maxT: 640, unit: 'ถุง' },
-    { id: 'cem_tiger', cat: 'ปูน', name: 'ปูนก่อ เสือมอร์ต้า', vol: 1, max6: 160, max10: 280, maxT: 640, unit: 'ถุง' },
-    { id: 'dec_easy', cat: 'Decor (ช่องลมอีซี่)', name: 'ช่องลมอีซี่ 40x60x9cm', vol: 1, max6: 375, max10: 600, maxT: 1200, unit: 'ก้อน' },
-    { id: 'dec_polka', cat: 'Decor (Polka/Pixxa/Noana)', name: 'บล็อคช่องลม Polka 60x60x9cm', vol: 1, max6: 270, max10: 450, maxT: 660, unit: 'ก้อน' },
-    { id: 'dec_pixxa', cat: 'Decor (Polka/Pixxa/Noana)', name: 'บล็อคช่องลม Pixxa 60x60x9cm', vol: 1, max6: 270, max10: 450, maxT: 660, unit: 'ก้อน' },
-    { id: 'dec_noana', cat: 'Decor (Polka/Pixxa/Noana)', name: 'บล็อคช่องลม Noana 60x60x9cm', vol: 1, max6: 270, max10: 450, maxT: 660, unit: 'ก้อน' },
-    { id: 'dec_ultra', cat: 'Decor (Ultra/Trena)', name: 'บล็อคช่องลม Ultra 60x60x9cm', vol: 1, max6: 270, max10: 450, maxT: 660, unit: 'ก้อน' },
-    { id: 'dec_trena', cat: 'Decor (Ultra/Trena)', name: 'บล็อคช่องลม Trena 60x60x9cm', vol: 1, max6: 270, max10: 450, maxT: 660, unit: 'ก้อน' },
-    { id: 'metal_strap', cat: 'อุปกรณ์', name: 'Metal strap', vol: 0.001, max6: 20000, max10: 35000, maxT: 50000, unit: 'ชิ้น' }
+    ...[120,150,180,210,240,270,300,330,360,400].map(len => ({ id: `l75_${len}`, cat: 'Lintel 7.5cm', name: `Lintel 20x${len}x7.5`, vol: 0.2 * (len/100) * 0.075, max6: len <= 180 ? 300 : len <= 240 ? 250 : len <= 270 ? 200 : 150, max10: len == 120 ? 900 : len == 150 ? 700 : len == 180 ? 580 : len == 210 ? 460 : len == 240 ? 440 : len == 270 ? 370 : len == 300 ? 330 : 250, maxT: len == 120 ? 2000 : len == 150 ? 1500 : len == 180 ? 1250 : len == 210 ? 1000 : len == 240 ? 950 : len == 270 ? 800 : len == 300 ? 720 : 540, unit: 'ท่อน' })),
+    ...[120,150,180,210,240,270,300,330,360].map(len => ({ id: `l10_${len}`, cat: 'Lintel 10-20cm', name: `Lintel 20x${len}x10`, vol: 0.2 * (len/100) * 0.1, max6: len <= 150 ? 300 : len <= 180 ? 250 : len <= 240 ? 200 : len <= 270 ? 150 : len <= 300 ? 150 : 120, max10: len == 120 ? 700 : len == 150 ? 510 : len == 180 ? 420 : len == 210 ? 350 : len == 240 ? 320 : len == 270 ? 280 : len == 300 ? 250 : len == 330 ? 230 : 210, maxT: len == 120 ? 1500 : len == 150 ? 1100 : len == 180 ? 900 : len == 210 ? 750 : len == 240 ? 700 : len == 270 ? 600 : len == 300 ? 540 : len == 330 ? 510 : 450, unit: 'ท่อน' })),
+    ...[120,150,180,210,240,270,300,330,360].map(len => ({ id: `l125_${len}`, cat: 'Lintel 10-20cm', name: `Lintel 20x${len}x12.5`, vol: 0.2 * (len/100) * 0.125, max6: len <= 150 ? 240 : len <= 180 ? 200 : len <= 240 ? 160 : len <= 330 ? 120 : 90, max10: len == 120 ? 520 : len == 150 ? 410 : len == 180 ? 330 : len == 210 ? 300 : len == 240 ? 260 : len == 270 ? 220 : len == 300 ? 190 : len == 330 ? 180 : 160, maxT: len == 120 ? 1120 : len == 150 ? 880 : len == 180 ? 720 : len == 210 ? 640 : len == 240 ? 560 : len == 270 ? 480 : len == 300 ? 420 : len == 330 ? 390 : 360, unit: 'ท่อน' })),
+    ...[120,150,180,210,240,270,300,330,360].map(len => ({ id: `l15_${len}`, cat: 'Lintel 10-20cm', name: `Lintel 20x${len}x15`, vol: 0.2 * (len/100) * 0.15, max6: len <= 180 ? 180 : len <= 240 ? 120 : len <= 270 ? 90 : 80, max10: len == 120 ? 420 : len == 150 ? 350 : len == 180 ? 280 : len == 210 ? 250 : len == 240 ? 210 : len == 270 ? 190 : len == 300 ? 170 : len == 330 ? 150 : 140, maxT: len == 120 ? 900 : len == 150 ? 750 : len == 180 ? 600 : len == 210 ? 540 : len == 240 ? 450 : len == 270 ? 420 : len == 300 ? 360 : len == 330 ? 330 : 300, unit: 'ท่อน' })),
+    ...[120,150,180,210,240,270,300,330,360].map(len => ({ id: `l20_${len}`, cat: 'Lintel 10-20cm', name: `Lintel 20x${len}x20`, vol: 0.2 * (len/100) * 0.2, max6: len <= 150 ? 140 : len <= 180 ? 120 : len <= 240 ? 100 : len <= 270 ? 80 : 60, max10: len == 120 ? 320 : len == 150 ? 260 : len == 180 ? 210 : len == 210 ? 190 : len == 240 ? 160 : len == 270 ? 140 : len == 300 ? 130 : len == 330 ? 120 : 100, maxT: len == 120 ? 700 : len == 150 ? 560 : len == 180 ? 460 : len == 210 ? 400 : len == 240 ? 340 : len == 270 ? 300 : len == 300 ? 280 : len == 330 ? 260 : 220, unit: 'ท่อน' })),
+    { id: 'ct_90', cat: 'Counter', name: 'COUNTER TOP (CT 56 x 90.5 x 7.5)', vol: 0.03801, max6: 120, max10: 290, maxT: 640, unit: 'แผ่น' },
+    { id: 'ct_120', cat: 'Counter', name: 'COUNTER TOP (CT 56 x 120 x 7.5)', vol: 0.0504, max6: 120, max10: 260, maxT: 576, unit: 'แผ่น' },
+    { id: 'ct_150', cat: 'Counter', name: 'COUNTER TOP (CT 56 x 150 x 7.5)', vol: 0.063, max6: 80, max10: 200, maxT: 448, unit: 'แผ่น' },
+    { id: 'ct_200', cat: 'Counter', name: 'COUNTER TOP (CT 56 x 200 x 7.5)', vol: 0.084, max6: 50, max10: 140, maxT: 320, unit: 'แผ่น' },
+    { id: 'cg_90', cat: 'Counter', name: 'COUNTER GAS(OVEN) (CG 56 x 90.5 x 7.5)', vol: 0.03801, max6: 120, max10: 290, maxT: 640, unit: 'แผ่น' },
+    { id: 'cs_120', cat: 'Counter', name: 'COUNTER SINK (CS 56 x 120 x 7.5)', vol: 0.0504, max6: 120, max10: 260, maxT: 576, unit: 'แผ่น' },
+    { id: 'cc_75', cat: 'Counter', name: 'COUNTER COLUMN (CC 56 x 75.5 x 7.5)', vol: 0.03171, max6: 120, max10: 290, maxT: 640, unit: 'แผ่น' },
+    { id: 'cf_105', cat: 'Counter', name: 'COUNTER FLOOR (CF 56 x 105 x 7.5)', vol: 0.0441, max6: 120, max10: 260, maxT: 576, unit: 'แผ่น' },
+    { id: 'cf_135', cat: 'Counter', name: 'COUNTER FLOOR (CF 56 x 135 x 7.5)', vol: 0.0567, max6: 80, max10: 260, maxT: 576, unit: 'แผ่น' },
+    { id: 'cf_185', cat: 'Counter', name: 'COUNTER FLOOR (CF 56 x 185 x 7.5)', vol: 0.0777, max6: 50, max10: 140, maxT: 320, unit: 'แผ่น' },
+    { id: 'cem_qg', cat: 'ปูน', name: 'ปูนก่อ Qcon', vol: 1, max6: 160, max10: 300, maxT: 640, unit: 'ถุง' },
+    { id: 'cem_qc', cat: 'ปูน', name: 'ปูนฉาบ Qcon', vol: 1, max6: 160, max10: 300, maxT: 640, unit: 'ถุง' },
+    { id: 'cem_tiger', cat: 'ปูน', name: 'ปูนก่อ เสือมอร์ต้า', vol: 1, max6: 160, max10: 300, maxT: 640, unit: 'ถุง' },
+    { id: 'dec_easy', cat: 'Decor (ช่องลมอีซี่)', name: 'ช่องลมอีซี่ 40x60x9cm', vol: 1, max6: 375, max10: 550, maxT: 1200, unit: 'ก้อน' },
+    { id: 'dec_polka', cat: 'Decor (Polka/Pixxa/Noana)', name: 'บล็อคช่องลม Polka 60x60x9cm', vol: 1, max6: 270, max10: 300, maxT: 660, unit: 'ก้อน' },
+    { id: 'dec_pixxa', cat: 'Decor (Polka/Pixxa/Noana)', name: 'บล็อคช่องลม Pixxa 60x60x9cm', vol: 1, max6: 270, max10: 300, maxT: 660, unit: 'ก้อน' },
+    { id: 'dec_noana', cat: 'Decor (Polka/Pixxa/Noana)', name: 'บล็อคช่องลม Noana 60x60x9cm', vol: 1, max6: 270, max10: 300, maxT: 660, unit: 'ก้อน' },
+    { id: 'dec_ultra', cat: 'Decor (Ultra/Trena)', name: 'บล็อคช่องลม Ultra 60x60x9cm', vol: 1, max6: 270, max10: 300, maxT: 660, unit: 'ก้อน' },
+    { id: 'dec_trena', cat: 'Decor (Ultra/Trena)', name: 'บล็อคช่องลม Trena 60x60x9cm', vol: 1, max6: 270, max10: 300, maxT: 660, unit: 'ก้อน' },
+    { id: 'metal_strap', cat: 'อุปกรณ์', name: 'Metal strap', vol: 0.001, max6: 20000, max10: 30000, maxT: 50000, unit: 'ชิ้น' }
 ];
 
-function applyRoleBasedUI(role) {
-    const isAdmin = (role === 'Admin');
-    document.getElementById('userRoleBadge').innerText = role;
-    if(isAdmin) {
-        document.getElementById('userRoleBadge').className = "ml-2 text-xs bg-purple-600 text-white px-2 py-0.5 rounded-full font-bold";
-        document.getElementById('adminFreightRatesPanel').classList.remove('hidden');
-        document.getElementById('bankAccountDiv').classList.remove('hidden');
-        document.querySelectorAll('.admin-only-cell').forEach(el => el.classList.remove('hidden'));
-        document.querySelectorAll('.admin-only-flex').forEach(el => el.classList.remove('hidden'));
-        document.getElementById('historyModalHeaderTitle').innerText = '☁️ ประวัติการคำนวณย้อนหลัง (ทั้งหมดในส่วนกลาง - Admin)';
-    } else {
-        document.getElementById('userRoleBadge').className = "ml-2 text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full font-bold";
-        document.getElementById('adminFreightRatesPanel').classList.add('hidden');
-        document.getElementById('bankAccountDiv').classList.add('hidden');
-        document.querySelectorAll('.admin-only-cell').forEach(el => el.classList.add('hidden'));
-        document.querySelectorAll('.admin-only-flex').forEach(el => el.classList.add('hidden'));
-        document.getElementById('historyModalHeaderTitle').innerText = '☁️ ประวัติการคำนวณย้อนหลังของฉัน';
-    }
-}
-
-function applyUserPermissions(user) {
-    applyRoleBasedUI(user.role);
-    applyUserPaymentPermissions(user.allowedPayments);
-    applyUserTruckPermissions(user.allowedTrucks);
-    applyUserDeliveryPermissions(user.allowedDeliveryTypes);
-}
-
-function applyUserDeliveryPermissions(allowedDeliveryStr) {
-    const dSelect = document.getElementById('deliveryType');
-    dSelect.innerHTML = '';
-    let allowedList = (!allowedDeliveryStr || allowedDeliveryStr === 'ทั้งหมด')
-        ? ['จัดส่งสินค้าให้', 'รับสินค้าเอง']
-        : allowedDeliveryStr.split(',').map(s => s.trim());
-    allowedList.forEach(item => {
-        dSelect.appendChild(new Option(item, item));
-    });
-    const badge = document.getElementById('deliveryLockBadge');
-    if(allowedList.length === 1) {
-        badge.innerText = `🔒 ล็อก: ${allowedList[0]}`;
-        badge.className = "text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold";
-    } else {
-        badge.innerText = `✅ สิทธิ์: ${allowedList.length} รายการ`;
-        badge.className = "text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-normal";
-    }
-}
-
-function applyUserTruckPermissions(allowedTrucksStr) {
-    let allowedList = (!allowedTrucksStr || allowedTrucksStr === 'ทั้งหมด')
-        ? ['trailer', '10wheel', '6wheel']
-        : allowedTrucksStr.split(',').map(s => s.trim());
-    
-    const setTruckVisibility = (idWrap, idCheck, typeName) => {
-        const wrap = document.getElementById(idWrap);
-        const chk = document.getElementById(idCheck);
-        if(allowedList.includes(typeName)) {
-            wrap.classList.remove('hidden');
-            chk.disabled = false;
-        } else {
-            wrap.classList.add('hidden');
-            chk.checked = false;
-            chk.disabled = true;
-        }
-    };
-    setTruckVisibility('wrapOptTrailer', 'truckOpt_trailer', 'trailer');
-    setTruckVisibility('wrapOpt10wheel', 'truckOpt_10wheel', '10wheel');
-    setTruckVisibility('wrapOpt6wheel', 'truckOpt_6wheel', '6wheel');
-    
-    const anyChecked = ['truckOpt_trailer', 'truckOpt_10wheel', 'truckOpt_6wheel'].some(id => document.getElementById(id).checked);
-    if (!anyChecked) {
-        const firstAvailable = allowedList[0];
-        if (firstAvailable && document.getElementById(`truckOpt_${firstAvailable}`)) {
-            document.getElementById(`truckOpt_${firstAvailable}`).checked = true;
-        }
-    }
-}
-
-function applyUserPaymentPermissions(allowedPaymentsStr) {
-    const paySelect = document.getElementById('paymentCondition');
-    paySelect.innerHTML = '';
-    
-    let rawAllowed = [];
-    if (!allowedPaymentsStr || allowedPaymentsStr.trim() === '' || allowedPaymentsStr.trim() === 'ทั้งหมด') {
-        rawAllowed = ALL_PAYMENT_OPTIONS.map(o => o.value);
-    } else {
-        rawAllowed = allowedPaymentsStr.split(',').map(s => s.trim()).filter(s => s.length > 0);
-    }
-
-    let matchedOptions = [];
-    ALL_PAYMENT_OPTIONS.forEach(opt => {
-        const isMatched = rawAllowed.some(allow => {
-            let a = allow.toLowerCase();
-            let v = opt.value.toLowerCase();
-            let l = opt.label.toLowerCase();
-            return v === a || l === a || v.includes(a) || a.includes(v);
-        });
-        if (isMatched && !matchedOptions.some(m => m.value === opt.value)) {
-            matchedOptions.push(opt);
-        }
-    });
-
-    if (matchedOptions.length === 0) {
-        rawAllowed.forEach(item => {
-            matchedOptions.push({ value: item, label: item });
-        });
-    }
-
-    matchedOptions.forEach((opt, idx) => {
-        let optionEl = new Option(opt.label, opt.value);
-        if (idx === 0) optionEl.selected = true;
-        paySelect.appendChild(optionEl);
-    });
-
-    const badge = document.getElementById('paymentLockBadge');
-    if (matchedOptions.length === 1) {
-        badge.innerText = `🔒 ล็อกสิทธิ์เฉพาะ: ${matchedOptions[0].value}`;
-        badge.className = "text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold";
-    } else {
-        badge.innerText = `✅ สิทธิ์: ${matchedOptions.length} เงื่อนไข`;
-        badge.className = "text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-normal";
-    }
-    updateCartPrices();
-}
-
-function validateFactoryTruckService() {
-    const factory = document.getElementById('factory').value;
-    const rules = factoryTruckRulesDB[factory];
-    const alertBox = document.getElementById('truckServiceAlert');
-    if (!rules) {
-        alertBox.classList.add('hidden');
-        return;
-    }
-    let warn = [];
-    const tOpt = document.getElementById('truckOpt_trailer');
-    const w10Opt = document.getElementById('truckOpt_10wheel');
-    const w6Opt = document.getElementById('truckOpt_6wheel');
-    
-    if (tOpt.checked && !rules.trailer) {
-        warn.push("รถเทรลเลอร์");
-        tOpt.checked = false;
-    }
-    if (w10Opt.checked && !rules["10wheel"]) {
-        warn.push("รถ 10 ล้อ");
-        w10Opt.checked = false;
-    }
-    if (w6Opt.checked && !rules["6wheel"]) {
-        warn.push("รถ 6 ล้อ");
-        w6Opt.checked = false;
-    }
-    
-    if (warn.length > 0) {
-        alertBox.innerText = `⚠️ แจ้งเตือน: โรงงาน${factory} ไม่มีบริการ: ${warn.join(', ')} (ระบบปรับการเลือกออกอัตโนมัติ)`;
-        alertBox.classList.remove('hidden');
-    } else {
-        alertBox.classList.add('hidden');
-    }
-}
-
 function fetchInitialData() {
-    const sTrailer = document.getElementById('importStatusTrailer');
-    const s10Wheel = document.getElementById('importStatus10Wheel');
-    const s6Wheel = document.getElementById('importStatus6Wheel');
-    sTrailer.innerHTML = '<span class="text-blue-600 font-medium">⏳ กำลังซิงค์...</span>';
-    s10Wheel.innerHTML = '<span class="text-blue-600 font-medium">⏳ กำลังซิงค์...</span>';
-    s6Wheel.innerHTML = '<span class="text-blue-600 font-medium">⏳ กำลังซิงค์...</span>';
+    const statusTrailer = document.getElementById('importStatusTrailer');
+    const status10Wheel = document.getElementById('importStatus10Wheel');
+    const status6Wheel = document.getElementById('importStatus6Wheel');
+    
+    if (statusTrailer) statusTrailer.innerHTML = '⏳ กำลังซิงค์...';
+    if (status10Wheel) status10Wheel.innerHTML = '⏳ กำลังซิงค์...';
+    if (status6Wheel) status6Wheel.innerHTML = '⏳ กำลังซิงค์...';
+    
+    try {
+        const cachedHist = localStorage.getItem('cachedServerHistory');
+        if (cachedHist) {
+            globalServerHistory = JSON.parse(cachedHist);
+            isHistoryLoaded = true;
+            initProjectAutocomplete();
+        }
+    } catch(e) {}
+
     const targetUrl = GOOGLE_SCRIPT_URL + "?action=get&_t=" + new Date().getTime();
     fetch(targetUrl)
-    .then(res => res.json())
+    .then(res => {
+        if (!res.ok) throw new Error('Network error');
+        return res.json();
+    })
     .then(data => {
         trailerFreightDB = data.trailerFreight || {};
         tenWheelFreightDB = data.tenWheelFreight || {};
         sixWheelFreightDB = data.sixWheelFreight || {};
-        basePricesByRegionDB = data.basePricesByRegion || {};
-        factoryTruckRulesDB = data.factoryTruckRules || {};
-        
-        localStorage.setItem('customFreightDB_v2', JSON.stringify(trailerFreightDB));
-        localStorage.setItem('customFreightDB_10w_v2', JSON.stringify(tenWheelFreightDB));
-        localStorage.setItem('customFreightDB_6w_v2', JSON.stringify(sixWheelFreightDB));
-        localStorage.setItem('basePricesByRegionDB', JSON.stringify(basePricesByRegionDB));
-        localStorage.setItem('factoryTruckRulesDB', JSON.stringify(factoryTruckRulesDB));
-        
-        sTrailer.innerHTML = `<span class="text-green-600 font-bold">✅ สำเร็จ (${Object.keys(trailerFreightDB).length} เส้นทาง)</span>`;
-        s10Wheel.innerHTML = `<span class="text-green-600 font-bold">✅ สำเร็จ (${Object.keys(tenWheelFreightDB).length} เส้นทาง)</span>`;
-        s6Wheel.innerHTML = `<span class="text-green-600 font-bold">✅ สำเร็จ (${Object.keys(sixWheelFreightDB).length} เส้นทาง)</span>`;
-        
-        const config = data.config || {};
-        if(config.fuelPrice) document.getElementById('fuelPrice').value = config.fuelPrice;
-        
+        basePricesByRegion = data.basePricesByRegion || {};
+        provinceRegions = data.provinceRegions || {};
+        if (data.factoryTrucks) factoryTrucksMap = data.factoryTrucks;
+        if (data.config && data.config.FuelPrice) fuelPriceVal = parseFloat(data.config.FuelPrice) || 31.00;
+
+        localStorage.setItem('cached_trailerDB', JSON.stringify(trailerFreightDB));
+        localStorage.setItem('cached_10wDB', JSON.stringify(tenWheelFreightDB));
+        localStorage.setItem('cached_6wDB', JSON.stringify(sixWheelFreightDB));
+        localStorage.setItem('cached_basePrices', JSON.stringify(basePricesByRegion));
+        localStorage.setItem('cached_provRegions', JSON.stringify(provinceRegions));
+
+        if (statusTrailer) statusTrailer.innerHTML = `✅ สำเร็จ (${Object.keys(trailerFreightDB).length})`;
+        if (status10Wheel) status10Wheel.innerHTML = `✅ สำเร็จ (${Object.keys(tenWheelFreightDB).length})`;
+        if (status6Wheel) status6Wheel.innerHTML = `✅ สำเร็จ (${Object.keys(sixWheelFreightDB).length})`;
+
+        updateDbConnectionStatus(true);
         buildLocationMapping();
-        globalServerHistory = (data.history || []).map((h, i) => ({
-            ...h, 
-            originalIndex: i,
-            uniqueId: h.rowId ? String(h.rowId) : String(i)
-        }));
-        initSaleDealerAutocomplete();
-        validateFactoryTruckService();
+
+        if (data.history) {
+            globalServerHistory = data.history.map((h, i) => ({...h, originalIndex: i}));
+            localStorage.setItem('cachedServerHistory', JSON.stringify(globalServerHistory));
+            isHistoryLoaded = true;
+            initProjectAutocomplete();
+        }
         autoLookupFreight();
     })
-    .catch(() => {
-        sTrailer.innerHTML = '<span class="text-amber-600 font-bold">⚠️ ใช้ตารางสำรอง</span>';
-        s10Wheel.innerHTML = '<span class="text-amber-600 font-bold">⚠️ ใช้ตารางสำรอง</span>';
-        s6Wheel.innerHTML = '<span class="text-amber-600 font-bold">⚠️ ใช้ตารางสำรอง</span>';
-        loadFreightDBFallback();
+    .catch(err => {
+        trailerFreightDB = JSON.parse(localStorage.getItem('cached_trailerDB') || '{}');
+        tenWheelFreightDB = JSON.parse(localStorage.getItem('cached_10wDB') || '{}');
+        sixWheelFreightDB = JSON.parse(localStorage.getItem('cached_6wDB') || '{}');
+        basePricesByRegion = JSON.parse(localStorage.getItem('cached_basePrices') || '{}');
+        provinceRegions = JSON.parse(localStorage.getItem('cached_provRegions') || '{}');
+        
+        let hasCache = Object.keys(trailerFreightDB).length > 0;
+        updateDbConnectionStatus(hasCache, hasCache ? 'ใช้งานข้อมูลแคชในเครื่อง' : 'ไม่สามารถเชื่อมโยงฐานข้อมูลได้');
+
+        if (statusTrailer) statusTrailer.innerHTML = '⚠️ ใช้แคชสำรอง';
+        if (status10Wheel) status10Wheel.innerHTML = '⚠️ ใช้แคชสำรอง';
+        if (status6Wheel) status6Wheel.innerHTML = '⚠️ ใช้แคชสำรอง';
+        buildLocationMapping();
     });
 }
 
-function loadFreightDBFallback() {
-    trailerFreightDB = JSON.parse(localStorage.getItem('customFreightDB_v2') || '{}');
-    tenWheelFreightDB = JSON.parse(localStorage.getItem('customFreightDB_10w_v2') || '{}');
-    sixWheelFreightDB = JSON.parse(localStorage.getItem('customFreightDB_6w_v2') || '{}');
-    basePricesByRegionDB = JSON.parse(localStorage.getItem('basePricesByRegionDB') || '{}');
-    factoryTruckRulesDB = JSON.parse(localStorage.getItem('factoryTruckRulesDB') || '{}');
-    buildLocationMapping();
+function cleanLocationName(str) {
+    return (str || '').replace(/^(จ\.|จังหวัด|อ\.|อำเภอ|กิ่ง อ\.|กิ่ง)/, '').trim();
 }
 
 function buildLocationMapping() {
-    locationMap.provToDist = {};
-    locationMap.distToProv = {};
-    locationMap.distToRegion = {};
-    const absorbKeys = (db) => {
-        Object.keys(db).forEach(k => {
-            const parts = k.split('_');
-            if(parts.length === 3) {
-                const prov = parts[1].trim();
-                const dist = parts[2].trim();
-                const region = (db[k] && db[k].region) ? db[k].region : 'กลาง';
-                if(!locationMap.provToDist[prov]) locationMap.provToDist[prov] = new Set();
-                locationMap.provToDist[prov].add(dist);
-                if(!locationMap.distToProv[dist]) locationMap.distToProv[dist] = new Set();
-                locationMap.distToProv[dist].add(prov);
-                locationMap.distToRegion[`${prov}_${dist}`] = region;
-            }
-        });
+    locationMap = {
+        districtsByProvince: {},
+        provincesByDistrict: {},
+        allProvinces: new Set(),
+        allDistricts: new Set()
     };
-    absorbKeys(trailerFreightDB);
-    absorbKeys(tenWheelFreightDB);
-    absorbKeys(sixWheelFreightDB);
-    renderProvinceDatalist();
-    renderDistrictDatalist();
+
+    const addEntry = (key) => {
+        const parts = key.split('_');
+        if (parts.length === 3) {
+            const prov = parts[1].trim();
+            const dist = parts[2].trim();
+            locationMap.allProvinces.add(prov);
+            locationMap.allDistricts.add(dist);
+
+            if (!locationMap.districtsByProvince[prov]) locationMap.districtsByProvince[prov] = new Set();
+            locationMap.districtsByProvince[prov].add(dist);
+
+            if (!locationMap.provincesByDistrict[dist]) locationMap.provincesByDistrict[dist] = new Set();
+            locationMap.provincesByDistrict[dist].add(prov);
+        }
+    };
+
+    Object.keys(trailerFreightDB).forEach(addEntry);
+    Object.keys(tenWheelFreightDB).forEach(addEntry);
+    Object.keys(sixWheelFreightDB).forEach(addEntry);
+
+    Object.keys(provinceRegions).forEach(prov => locationMap.allProvinces.add(prov));
+
+    populateDatalist('provinceList', Array.from(locationMap.allProvinces).sort());
+    populateDatalist('districtList', Array.from(locationMap.allDistricts).sort());
 }
 
-function renderProvinceDatalist(filterProvinces = null) {
-    const provList = document.getElementById('provinceList');
-    provList.innerHTML = '';
-    const provs = filterProvinces ? Array.from(filterProvinces) : Object.keys(locationMap.provToDist);
-    provs.sort().forEach(p => provList.appendChild(new Option(p, p)));
+function populateDatalist(elementId, items) {
+    const list = document.getElementById(elementId);
+    if (!list) return;
+    list.innerHTML = '';
+    items.forEach(item => list.appendChild(new Option(item, item)));
 }
 
-function renderDistrictDatalist(filterDistricts = null) {
-    const distList = document.getElementById('districtList');
-    distList.innerHTML = '';
-    const dists = filterDistricts ? Array.from(filterDistricts) : Object.keys(locationMap.distToProv);
-    dists.sort().forEach(d => distList.appendChild(new Option(d, d)));
-}
+function onProvinceChanged() {
+    const provVal = cleanLocationName(document.getElementById('province').value);
+    const distInput = document.getElementById('district');
 
-function onProvinceInput() {
-    const provInput = document.getElementById('province').value.trim().replace(/^(จ\.|จังหวัด|จ)/, '');
-    if (provInput && locationMap.provToDist[provInput]) {
-        renderDistrictDatalist(locationMap.provToDist[provInput]);
-    } else if (!provInput) {
-        renderDistrictDatalist();
+    if (provVal && locationMap.districtsByProvince[provVal]) {
+        const matchingDistricts = Array.from(locationMap.districtsByProvince[provVal]).sort();
+        populateDatalist('districtList', matchingDistricts);
+    } else {
+        populateDatalist('districtList', Array.from(locationMap.allDistricts).sort());
     }
-    updateRegionDetection();
+
+    detectAndValidateRegion(provVal);
     autoLookupFreight();
+    updateCartPrices();
 }
 
-function onDistrictInput() {
-    const distInput = document.getElementById('district').value.trim().replace(/^(อ\.|อำเภอ|กิ่ง อ\.|กิ่ง|อ)/, '');
-    const provInputEl = document.getElementById('province');
-    if (distInput && locationMap.distToProv[distInput]) {
-        const provs = Array.from(locationMap.distToProv[distInput]);
-        if (provs.length === 1 && !provInputEl.value) {
-            provInputEl.value = provs[0];
-            renderDistrictDatalist(locationMap.provToDist[provs[0]]);
+function onDistrictChanged() {
+    const distVal = cleanLocationName(document.getElementById('district').value);
+    const provInput = document.getElementById('province');
+
+    if (distVal && locationMap.provincesByDistrict[distVal]) {
+        const matchingProvinces = Array.from(locationMap.provincesByDistrict[distVal]);
+        if (matchingProvinces.length === 1 && !provInput.value.trim()) {
+            provInput.value = matchingProvinces[0];
+            onProvinceChanged();
         } else {
-            renderProvinceDatalist(locationMap.distToProv[distInput]);
+            populateDatalist('provinceList', matchingProvinces.sort());
         }
-    } else if (!distInput) {
-        renderProvinceDatalist();
+    } else {
+        populateDatalist('provinceList', Array.from(locationMap.allProvinces).sort());
     }
-    updateRegionDetection();
     autoLookupFreight();
 }
 
-function updateRegionDetection() {
-    const p = document.getElementById('province').value.trim().replace(/^(จ\.|จังหวัด|จ)/, '');
-    const d = document.getElementById('district').value.trim().replace(/^(อ\.|อำเภอ|กิ่ง อ\.|กิ่ง|อ)/, '');
+function detectAndValidateRegion(provVal) {
     const regField = document.getElementById('detectedRegion');
-    const region = locationMap.distToRegion[`${p}_${d}`] || 'กลาง';
+    let region = provinceRegions[provVal] || 'กลาง';
     regField.value = region;
-    
-    if (currentUser && currentUser.allowedRegions && currentUser.allowedRegions !== 'ทั้งหมด') {
-        const allowed = currentUser.allowedRegions.split(',').map(s => s.trim());
-        if (!allowed.includes(region)) {
-            alert(`⚠️ บัญชีของคุณไม่มีสิทธิ์ทำการคำนวณราคาสินค้าใน "ภาค${region}" (สิทธิ์ที่คุณได้รับ: ${currentUser.allowedRegions})`);
+
+    if (currentUser && currentUser.role !== 'Admin') {
+        const allowed = currentUser.allowedRegions || [];
+        if (allowed.length > 0 && !allowed.includes(region)) {
+            alert(`⚠️ บัญชีของคุณ (${currentUser.username}) ไม่มีสิทธิ์คำนวณราคาใน "ภาค${region}" (คุณมีสิทธิ์เฉพาะ: ${allowed.join(', ')})`);
             document.getElementById('province').value = '';
-            document.getElementById('district').value = '';
-            regField.value = 'ไม่มีสิทธิ์ในภาคนี้';
-            return;
+            regField.value = '';
+            return false;
         }
     }
-    applyRegionalPrices(region);
+    return true;
 }
 
-function applyRegionalPrices(region) {
-    const prices = basePricesByRegionDB[region] || basePricesByRegionDB['กลาง'] || {};
-    document.getElementById('basePriceBlockG2').value = prices.basePriceBlockG2 || 0;
-    document.getElementById('basePriceBlockAMinus').value = prices.basePriceBlockAMinus || 0;
-    document.getElementById('basePriceBlockG4').value = prices.basePriceBlockG4 || 0;
-    document.getElementById('basePriceLintel75').value = prices.basePriceLintel75 || 0;
-    document.getElementById('basePriceLintelOther').value = prices.basePriceLintelOther || 0;
-    document.getElementById('basePriceCounter').value = prices.basePriceCounter || 0;
-    document.getElementById('basePriceCemQG').value = prices.basePriceCemQG || 0;
-    document.getElementById('basePriceCemQC').value = prices.basePriceCemQC || 0;
-    document.getElementById('basePriceCemTiger').value = prices.basePriceCemTiger || 0;
-    document.getElementById('basePriceDecor').value = prices.basePriceDecor || 0;
-    document.getElementById('basePriceDecorPolka').value = prices.basePriceDecorPolka || 0;
-    document.getElementById('basePriceDecorUltra').value = prices.basePriceDecorUltra || 0;
-    document.getElementById('basePriceMetalStrap').value = prices.basePriceMetalStrap || 0;
-    renderCart();
+function onFactoryChanged() {
+    validateFactoryTruckAvailability();
+    autoLookupFreight();
+    calculateFreight(false);
+}
+
+function validateFactoryTruckAvailability() {
+    const factory = document.getElementById('factory').value;
+    const allowedForFactory = factoryTrucksMap[factory] || ['trailer'];
+    const warningEl = document.getElementById('factoryTruckWarning');
+
+    let invalidSelected = false;
+    const selectedTrucks = getSelectedTruckTypes();
+
+    selectedTrucks.forEach(t => {
+        if (!allowedForFactory.includes(t)) {
+            invalidSelected = true;
+        }
+    });
+
+    if (invalidSelected) {
+        warningEl.classList.remove('hidden');
+        warningEl.innerText = `⚠️ โรงงาน${factory} ไม่มีประเภทรถที่เลือกให้บริการ (ให้บริการเฉพาะ: ${allowedForFactory.map(getTruckLabel).join(', ')})`;
+    } else {
+        warningEl.classList.add('hidden');
+    }
+}
+
+function getTruckLabel(t) {
+    if (t === '6wheel') return 'รถ 6 ล้อ';
+    if (t === '10wheel') return 'รถ 10 ล้อ';
+    return 'รถเทรลเลอร์';
+}
+
+function onTruckSelectionChange() {
+    validateFactoryTruckAvailability();
+    updateDefaultQty();
+    calculateFreight(false);
+}
+
+function getSelectedTruckTypes() {
+    let selected = [];
+    if (document.getElementById('truckOptTrailer').checked) selected.push('trailer');
+    if (document.getElementById('truckOpt10Wheel').checked) selected.push('10wheel');
+    if (document.getElementById('truckOpt6Wheel').checked) selected.push('6wheel');
+    if (selected.length === 0) {
+        document.getElementById('truckOptTrailer').checked = true;
+        selected.push('trailer');
+    }
+    return selected;
+}
+
+function updateDefaultQty() {
+    const pid = document.getElementById('productSelector').value;
+    if (!pid) return;
+    const prod = productData.find(p => p.id === pid);
+    if (!prod) return;
+
+    const selectedTypes = getSelectedTruckTypes();
+    if (selectedTypes.includes('trailer')) {
+        document.getElementById('productQtyAdd').value = prod.maxT;
+    } else if (selectedTypes.includes('10wheel')) {
+        document.getElementById('productQtyAdd').value = prod.max10;
+    } else {
+        document.getElementById('productQtyAdd').value = prod.max6;
+    }
 }
 
 function autoLookupFreight() {
     const factory = document.getElementById('factory').value.trim();
     const districtRaw = document.getElementById('district').value.trim();
     const provinceRaw = document.getElementById('province').value.trim();
-    const fuelVal = parseFloat(document.getElementById('fuelPrice').value) || 0;
-    const fuelIndex = getFuelPriceIndex(fuelVal);
-    const f6Input = document.getElementById('freightCost_6wheel');
-    const f10Input = document.getElementById('freightCost_10wheel');
-    const fTInput = document.getElementById('freightCost_trailer');
+    const fuelIndex = getFuelPriceIndex(fuelPriceVal);
+    
+    const freight6wInput = document.getElementById('freightCost6w');
+    const freight10wInput = document.getElementById('freightCost10w');
+    const freightTrailerInput = document.getElementById('freightCostTrailer');
+
     if (districtRaw && provinceRaw) {
-        let p = provinceRaw.replace(/^(จ\.|จังหวัด|จ)/, '').trim();
-        let d = districtRaw.replace(/^(อ\.|อำเภอ|กิ่ง อ\.|กิ่ง|อ)/, '').trim();
-        let key = `${factory}_${p}_${d}`;
-        let keyCity = d === 'เมือง' ? `${factory}_${p}_เมือง${p}` : null;
-        const getP = (db) => {
-            let res = db[key] || (keyCity ? db[keyCity] : null);
-            if (res && res.rates && res.rates.length > 0) {
-                let idx = fuelIndex < res.rates.length ? fuelIndex : (res.rates.length - 1);
-                return res.rates[idx] || res.rates[0];
+        let searchProv = cleanLocationName(provinceRaw);
+        let searchDist = cleanLocationName(districtRaw);
+        const key = factory + "_" + searchProv + "_" + searchDist;
+        const keyCity = searchDist === 'เมือง' ? (factory + "_" + searchProv + "_เมือง" + searchProv) : null;
+
+        const getPrice = (db) => {
+            let found = db[key] || (keyCity ? db[keyCity] : null);
+            if (found && found.length > 0) {
+                let fetchIndex = fuelIndex < found.length ? fuelIndex : (found.length - 1);
+                return found[fetchIndex] || found[0];
             }
-            return '';
+            return 0;
         };
-        f6Input.value = getP(sixWheelFreightDB);
-        f10Input.value = getP(tenWheelFreightDB);
-        fTInput.value = getP(trailerFreightDB);
+
+        freight6wInput.value = getPrice(sixWheelFreightDB) || '';
+        freight10wInput.value = getPrice(tenWheelFreightDB) || '';
+        freightTrailerInput.value = getPrice(trailerFreightDB) || '';
     }
 }
 
@@ -972,90 +890,54 @@ function getFuelPriceIndex(fuel) {
     return 11;
 }
 
-function handleTruckOptionChange() {
-    validateFactoryTruckService();
-    const tOpt = document.getElementById('truckOpt_trailer').checked;
-    const w10Opt = document.getElementById('truckOpt_10wheel').checked;
-    const w6Opt = document.getElementById('truckOpt_6wheel').checked;
-    if (!tOpt && !w10Opt && !w6Opt) {
-        alert("ต้องเลือกประเภทรถอย่างน้อย 1 ประเภทครับ");
-        document.getElementById('truckOpt_trailer').checked = true;
-    }
-    updateDefaultQty();
-    calculateFreight();
-}
-
-function getSelectedTruckConfigs() {
-    let list = [];
-    const factory = document.getElementById('factory').value;
-    const rules = factoryTruckRulesDB[factory] || { trailer: true, "10wheel": true, "6wheel": true };
-    
-    if (document.getElementById('truckOpt_trailer').checked && rules.trailer) {
-        list.push({ type: 'trailer', name: 'รถเทรลเลอร์', cost: parseFloat(document.getElementById('freightCost_trailer').value) || 0, rank: 3 });
-    }
-    if (document.getElementById('truckOpt_10wheel').checked && rules["10wheel"]) {
-        list.push({ type: '10wheel', name: 'รถ 10 ล้อ', cost: parseFloat(document.getElementById('freightCost_10wheel').value) || 0, rank: 2 });
-    }
-    if (document.getElementById('truckOpt_6wheel').checked && rules["6wheel"]) {
-        list.push({ type: '6wheel', name: 'รถ 6 ล้อ', cost: parseFloat(document.getElementById('freightCost_6wheel').value) || 0, rank: 1 });
-    }
-    list.sort((a, b) => b.rank - a.rank);
-    return list;
-}
-
 function roundTax(num) { return Math.round((num + Number.EPSILON) * 100) / 100; }
 
 function getWeightPerUnit(prod) {
-    if (prod.id === 'cem_tiger') return 50;
-    if (prod.id === 'cem_qg' || prod.id === 'cem_qc') return 40;
+    if (prod.id === 'cem_tiger') return 50; 
+    if (prod.id === 'cem_qg' || prod.id === 'cem_qc') return 40; 
     if (prod.id === 'dec_easy') return 15;
-    if (['dec_polka', 'dec_pixxa', 'dec_noana', 'dec_ultra', 'dec_trena'].includes(prod.id)) return 13;
+    if (['dec_polka', 'dec_pixxa', 'dec_noana', 'dec_ultra', 'dec_trena'].includes(prod.id)) return 13; 
     if (prod.id === 'metal_strap') return 0.1;
-    let density = (prod.cat === 'Block G4' || prod.cat.includes('Lintel') || prod.cat === 'Counter') ? 800 : 700;
+    let density = 700; 
+    if (prod.cat === 'Block G4' || prod.cat.includes('Lintel') || prod.cat === 'Counter') density = 800;
     return prod.vol * density;
+}
+
+function getBasePrice(product) {
+    let region = document.getElementById('detectedRegion').value || 'กลาง';
+    let rPrices = basePricesByRegion[region] || basePricesByRegion['กลาง'] || {
+        b2: 19.5, bAMinus: 18.0, b4: 24.0, l75: 3200, lo: 3600, ct: 4200, cqg: 110, cqc: 120, ctg: 115, dec: 65, decP: 85, decU: 95, ms: 12
+    };
+
+    if(product.cat === 'Block G2') return (rPrices.b2 / 0.009) * product.vol;
+    if(product.cat === 'Block G4') return (rPrices.b4 / 0.009) * product.vol;
+    if(product.cat === 'Block A-') return (rPrices.bAMinus / 0.009) * product.vol;
+    if(product.cat === 'Lintel 7.5cm') return rPrices.l75 * product.vol;
+    if(product.cat === 'Lintel 10-20cm') return rPrices.lo * product.vol;
+    if(product.cat === 'Counter') return rPrices.ct * product.vol;
+    if(product.id === 'cem_qg') return rPrices.cqg;
+    if(product.id === 'cem_qc') return rPrices.cqc;
+    if(product.id === 'cem_tiger') return rPrices.ctg;
+    if(product.id === 'dec_easy') return rPrices.dec;
+    if(product.cat === 'Decor (Polka/Pixxa/Noana)') return rPrices.decP;
+    if(product.cat === 'Decor (Ultra/Trena)') return rPrices.decU;
+    if(product.id === 'metal_strap') return rPrices.ms;
+    return 0;
 }
 
 function initSelectors() {
     const catSel = document.getElementById('categorySelector'), categories = [...new Set(productData.map(p => p.cat))];
-    catSel.innerHTML = '<option value="all">-- ทั้งหมด --</option>';
+    catSel.innerHTML = '<option value="all">-- ทั้งหมด --</option>'; 
     categories.forEach(cat => catSel.appendChild(new Option(cat, cat)));
     updateProductDropdown();
-}
-
-function updateDefaultQty() {
-    const pid = document.getElementById('productSelector').value;
-    if (!pid) return;
-    const prod = productData.find(p => p.id === pid);
-    if (!prod) return;
-    const truckConfigs = getSelectedTruckConfigs();
-    const primary = truckConfigs[0] ? truckConfigs[0].type : 'trailer';
-    const limit = primary === 'trailer' ? prod.maxT : (primary === '10wheel' ? prod.max10 : prod.max6);
-    document.getElementById('productQtyAdd').value = limit;
 }
 
 function updateProductDropdown() {
     const catSel = document.getElementById('categorySelector').value, prodSel = document.getElementById('productSelector');
     prodSel.innerHTML = '';
     let filtered = catSel !== 'all' ? productData.filter(p => p.cat === catSel) : productData;
-    filtered.forEach(p => prodSel.appendChild(new Option(p.name, p.id)));
+    filtered.forEach(p => prodSel.appendChild(new Option(p.name, p.id))); 
     updateDefaultQty();
-}
-
-function getBasePrice(product) {
-    if(product.cat === 'Block G2') return ((parseFloat(document.getElementById('basePriceBlockG2').value) || 0) / 0.009) * product.vol;
-    if(product.cat === 'Block G4') return ((parseFloat(document.getElementById('basePriceBlockG4').value) || 0) / 0.009) * product.vol;
-    if(product.cat === 'Block A-') return ((parseFloat(document.getElementById('basePriceBlockAMinus').value) || 0) / 0.009) * product.vol;
-    if(product.cat === 'Lintel 7.5cm') return (parseFloat(document.getElementById('basePriceLintel75').value) || 0) * product.vol;
-    if(product.cat === 'Lintel 10-20cm') return (parseFloat(document.getElementById('basePriceLintelOther').value) || 0) * product.vol;
-    if(product.cat === 'Counter') return (parseFloat(document.getElementById('basePriceCounter').value) || 0) * product.vol;
-    if(product.id === 'cem_qg') return parseFloat(document.getElementById('basePriceCemQG').value) || 0;
-    if(product.id === 'cem_qc') return parseFloat(document.getElementById('basePriceCemQC').value) || 0;
-    if(product.id === 'cem_tiger') return parseFloat(document.getElementById('basePriceCemTiger').value) || 0;
-    if(product.id === 'dec_easy') return parseFloat(document.getElementById('basePriceDecor').value) || 0;
-    if(product.cat === 'Decor (Polka/Pixxa/Noana)') return parseFloat(document.getElementById('basePriceDecorPolka').value) || 0;
-    if(product.cat === 'Decor (Ultra/Trena)') return parseFloat(document.getElementById('basePriceDecorUltra').value) || 0;
-    if(product.id === 'metal_strap') return parseFloat(document.getElementById('basePriceMetalStrap').value) || 0;
-    return 0;
 }
 
 function addItemToCart() {
@@ -1064,298 +946,351 @@ function addItemToCart() {
     if(qty <= 0) return alert("กรุณาระบุจำนวนที่มากกว่า 0");
     const existing = cart.find(i => i.id === pid);
     if(existing) existing.qty += qty; else cart.push({ id: pid, qty: qty });
+    updateDefaultQty(); 
     renderCart();
 }
 
 function removeCartItem(pid) { cart = cart.filter(i => i.id !== pid); renderCart(); }
 
-function updateCartQty(pid, newQty) {
-    const item = cart.find(i => i.id === pid);
-    if(item) {
-        let q = parseFloat(newQty) || 0;
-        if(q <= 0) removeCartItem(pid); else { item.qty = q; renderCart(); }
-    }
+function updateCartQty(pid, newQty) { 
+    const item = cart.find(i => i.id === pid); 
+    if(item) { 
+        let q = parseFloat(newQty) || 0; 
+        if(q <= 0) removeCartItem(pid); 
+        else { item.qty = q; renderCart(); } 
+    } 
 }
 
 function updateCartPrices() { renderCart(); }
 
 function renderCart() {
     const tbody = document.getElementById('cartTableBody');
-    if(cart.length === 0) { tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-gray-400">ยังไม่มีรายการสินค้าในตาราง</td></tr>`; return; }
+    if(cart.length === 0) { tbody.innerHTML = `<tr><td colspan="7" class="p-4 text-center text-gray-400">ยังไม่มีรายการสินค้าในตาราง</td></tr>`; return; }
     const hasDiscount = (document.getElementById('paymentCondition').value === 'เงินสด');
-    const isAdmin = currentUser && currentUser.role === 'Admin';
     let html = '';
     cart.forEach(cartItem => {
         const prod = productData.find(p => p.id === cartItem.id);
-        let unitPriceBase = roundTax(getBasePrice(prod));
+        let unitPriceBase = roundTax(getBasePrice(prod)); 
         let netUnitPrice = hasDiscount ? roundTax(unitPriceBase * 0.98) : unitPriceBase;
-        let priceTd = isAdmin
-            ? `<td class="p-3 text-right font-medium text-blue-700 admin-only-cell">${netUnitPrice.toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>`
-            : `<td class="p-3 text-right font-medium text-blue-700 admin-only-cell hidden"></td>`;
+        
+        let priceBaseCol = `<td class="p-3 text-right text-gray-600 admin-cell">${unitPriceBase.toFixed(2)}</td>`;
+        let priceNetCol = `<td class="p-3 text-right font-medium text-blue-700 admin-cell">${netUnitPrice.toFixed(2)}</td>`;
+
         html += `<tr class="hover:bg-gray-50 border-b">
                 <td class="p-3">${prod.name}</td>
                 <td class="p-3 text-center text-gray-500 text-xs">${prod.cat}</td>
                 <td class="p-3 text-right"><input type="number" value="${cartItem.qty}" class="w-20 border rounded p-1 text-right text-sm" onchange="updateCartQty('${prod.id}', this.value)" min="1"></td>
                 <td class="p-3 text-center text-gray-500">${prod.unit}</td>
-                ${priceTd}
+                ${priceBaseCol}
+                ${priceNetCol}
                 <td class="p-3 text-center"><button onclick="removeCartItem('${prod.id}')" class="text-red-500 font-bold px-2 py-1 bg-red-50 rounded">ลบ</button></td>
             </tr>`;
     });
     tbody.innerHTML = html;
+    applyRoleVisibility();
 }
 
-function calculateFreight() {
-    const projectInput = document.getElementById('projectName');
-    const project = projectInput.value.trim();
-    if (!project) {
-        alert("⚠️ กรุณาระบุข้อมูล 'หน่วยงาน / โครงการ' ก่อนทำการคำนวณครับ!");
-        projectInput.focus();
-        return;
+function toggleTruckPlan() {
+    window.isTruckPlanVisible = !window.isTruckPlanVisible;
+    const details = document.getElementById('outTruckDetails'), btn = document.getElementById('toggleTruckPlanBtn');
+    if (window.isTruckPlanVisible) { details.style.display = ''; btn.innerHTML = '👁️ ซ่อนแผนการจัดส่ง'; btn.className = 'text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded border shadow-sm transition editable-hint'; }
+    else { details.style.display = 'none'; btn.innerHTML = '👁️ แสดงแผนการจัดส่ง'; btn.className = 'text-xs bg-red-50 hover:bg-red-100 text-red-600 px-3 py-1.5 rounded border shadow-sm transition editable-hint'; }
+}
+
+function toggleBankDisplay() {
+    isBankVisible = !isBankVisible;
+    if(isBankVisible) { document.getElementById('bankAccountDiv').classList.remove('hidden'); document.getElementById('showBankBtn').classList.add('hidden'); }
+    else { document.getElementById('bankAccountDiv').classList.add('hidden'); document.getElementById('showBankBtn').classList.remove('hidden'); }
+}
+
+// คำนวณเที่ยวรถ ตรวจสอบสถานะการเชื่อมต่อ และบันทึกข้อมูลส่วนกลางอัตโนมัติ
+function calculateFreight(isTriggeredByButton = false) {
+    const project = document.getElementById('projectName').value.trim();
+    const customerGrp = document.getElementById('customerGroup').value.trim();
+    const company = document.getElementById('companyName').value.trim();
+    const deliveryType = document.getElementById('deliveryType').value;
+
+    if (!project) { alert("⚠️ กรุณาระบุข้อมูล 'หน่วยงาน / โครงการ' ก่อนครับ!"); document.getElementById('projectName').focus(); return; }
+    if (!customerGrp) { alert("⚠️ กรุณาเลือก 'กลุ่มลูกค้า' ก่อนครับ!"); document.getElementById('customerGroup').focus(); return; }
+    if (!company) { alert("⚠️ กรุณาระบุ 'ชื่อบริษัท ของกลุ่มลูกค้า' ก่อนครับ!"); document.getElementById('companyName').focus(); return; }
+    if (cart.length === 0) { document.getElementById('resultArea').classList.add('hidden'); return; }
+
+    const factory = document.getElementById('factory').value;
+    const allowedForFactory = factoryTrucksMap[factory] || ['trailer'];
+    const selectedTrucks = getSelectedTruckTypes();
+
+    for (let t of selectedTrucks) {
+        if (!allowedForFactory.includes(t)) {
+            alert(`⚠️ ไม่สามารถคำนวณได้: โรงงาน${factory} ไม่มีบริการ ${getTruckLabel(t)} กรุณาเปลี่ยนประเภทรถหรือโรงงานครับ`);
+            return;
+        }
     }
-    const custGroup = document.getElementById('customerGroup').value;
-    if (!custGroup) {
-        alert("⚠️ กรุณาเลือก 'กลุ่มลูกค้า' ก่อนทำการคำนวณครับ!");
-        document.getElementById('customerGroup').focus();
-        return;
-    }
-    const compName = document.getElementById('companyName').value.trim();
-    if (!compName) {
-        alert("⚠️ กรุณาระบุข้อมูล 'ชื่อบริษัท (ของกลุ่มลูกค้า)' ก่อนทำการคำนวณครับ!");
-        document.getElementById('companyName').focus();
-        return;
-    }
-    if(cart.length === 0) {
-        document.getElementById('resultArea').classList.add('hidden');
-        return;
-    }
-    const availableTrucks = getSelectedTruckConfigs();
-    if (availableTrucks.length === 0) {
-        alert("กรุณาเลือกประเภทรถจัดบรรทุกอย่างน้อย 1 ประเภทที่โรงงานมีบริการ");
-        return;
-    }
+
     const district = document.getElementById('district').value.trim();
     const province = document.getElementById('province').value.trim();
-    const factory = document.getElementById('factory').value;
-    const fuel = parseFloat(document.getElementById('fuelPrice').value) || 0;
-    const deliveryType = document.getElementById('deliveryType').value;
+
+    // ตรวจสอบการเชื่อมต่อฐานข้อมูลในกรณีจัดส่งสินค้าให้
+    if (deliveryType === 'จัดส่งสินค้าให้') {
+        const f6w = parseFloat(document.getElementById('freightCost6w').value) || 0;
+        const f10w = parseFloat(document.getElementById('freightCost10w').value) || 0;
+        const fTrailer = parseFloat(document.getElementById('freightCostTrailer').value) || 0;
+
+        if (!isDbConnected && Object.keys(trailerFreightDB).length === 0) {
+            alert("❌ ระบบยังไม่สามารถเชื่อมโยงฐานข้อมูลค่าขนส่งส่วนกลางได้ในขณะนี้ กรุณารอสักครู่หรือตรวจสอบการเชื่อมต่ออินเทอร์เน็ต");
+            return;
+        }
+
+        if (f6w === 0 && f10w === 0 && fTrailer === 0) {
+            alert(`⚠️ ไม่สามารถคำนวณพิกัดบรรทุกได้: ไม่พบอัตราค่าขนส่งในพื้นที่ "${province} - ${district}" จากโรงงาน "${factory}" ในฐานข้อมูล หรือยังไม่สามารถดึงข้อมูลค่าขนส่งได้`);
+            return;
+        }
+    }
+
     const payCond = document.getElementById('paymentCondition').value;
     const hasDiscount = (payCond === 'เงินสด');
     const freightMode = document.getElementById('freightAllocationMode').value;
-    const isAdmin = currentUser && currentUser.role === 'Admin';
-    
-    document.getElementById('outDealer').innerText = currentUser ? currentUser.fullName : '-';
-    
-    const primaryTruck = availableTrucks[0];
-    const getLimit = (item, type) => type === 'trailer' ? item.maxT : (type === '10wheel' ? item.max10 : item.max6);
+
+    const fCost6w = deliveryType === 'รับสินค้าเอง' ? 0 : roundTax(parseFloat(document.getElementById('freightCost6w').value) || 0);
+    const fCost10w = deliveryType === 'รับสินค้าเอง' ? 0 : roundTax(parseFloat(document.getElementById('freightCost10w').value) || 0);
+    const fCostTrailer = deliveryType === 'รับสินค้าเอง' ? 0 : roundTax(parseFloat(document.getElementById('freightCostTrailer').value) || 0);
+
+    const truckCostMap = { '6wheel': fCost6w, '10wheel': fCost10w, 'trailer': fCostTrailer };
+    const truckNameMap = { '6wheel': 'รถ 6 ล้อ', '10wheel': 'รถ 10 ล้อ', 'trailer': 'รถเทรลเลอร์' };
+    const maxWeightMap = { '6wheel': 6500, '10wheel': 15000, 'trailer': 32000 };
+
+    let primaryTruck = 'trailer';
+    if (selectedTrucks.includes('trailer')) primaryTruck = 'trailer';
+    else if (selectedTrucks.includes('10wheel')) primaryTruck = '10wheel';
+    else primaryTruck = '6wheel';
+
+    const getCapacity = (prod, tType) => {
+        if (tType === '6wheel') return prod.max6;
+        if (tType === '10wheel') return prod.max10;
+        return prod.maxT;
+    };
+
+    document.getElementById('creditNoteInput').value = '0';
+    window.isTruckPlanVisible = true; 
+    document.getElementById('outTruckDetails').style.display = ''; 
+    document.getElementById('toggleTruckPlanBtn').innerHTML = '👁️ ซ่อนแผนการจัดส่ง';
+
     let itemsToProcess = [];
-    cart.forEach(c => {
-        const prod = productData.find(p => p.id === c.id);
-        let baseP = roundTax(getBasePrice(prod));
-        let netP = hasDiscount ? roundTax(baseP * 0.98) : baseP;
-        itemsToProcess.push({
-            ...prod,
-            qty: c.qty,
-            netUnitPrice: netP,
-            weightPerUnit: getWeightPerUnit(prod)
+    cart.forEach(cartItem => {
+        const prod = productData.find(p => p.id === cartItem.id);
+        let unitPriceBase = roundTax(getBasePrice(prod)); 
+        let netUnitPrice = hasDiscount ? roundTax(unitPriceBase * 0.98) : unitPriceBase;
+        itemsToProcess.push({ 
+            ...prod, 
+            qty: cartItem.qty, 
+            netUnitPrice: netUnitPrice, 
+            maxLimitPrimary: getCapacity(prod, primaryTruck),
+            weightPerUnit: getWeightPerUnit(prod) 
         });
     });
-    
-    let assignedTrips = [];
-    let remainingItems = itemsToProcess.map(i => ({ ...i, leftQty: i.qty }));
-    
-    while (remainingItems.some(i => i.leftQty > 0)) {
-        let singleTripCandidates = [];
-        availableTrucks.forEach(tk => {
-            let totalFrac = 0;
-            for (let it of remainingItems) {
-                if (it.leftQty <= 0) continue;
-                totalFrac += (it.leftQty / getLimit(it, tk.type));
-            }
-            if (totalFrac <= 1.0001) {
-                let cost = deliveryType === 'รับสินค้าเอง' ? 0 : tk.cost;
-                singleTripCandidates.push({
-                    truckType: tk.type,
-                    truckName: tk.name,
-                    cost: cost,
-                    fractionTotal: Math.min(1.0, totalFrac),
-                    items: remainingItems.filter(it => it.leftQty > 0).map(it => ({
-                        name: it.name,
-                        qty: it.leftQty,
-                        unit: it.unit,
-                        maxLimit: getLimit(it, tk.type),
-                        fraction: (it.leftQty / getLimit(it, tk.type)),
-                        weight: it.leftQty * it.weightPerUnit
-                    }))
-                });
+
+    let plannedTrucks = [];
+    let remainders = [];
+    let totalFractionAllItems = 0;
+
+    itemsToProcess.forEach(item => {
+        const fullTrucks = Math.floor(item.qty / item.maxLimitPrimary);
+        for(let i = 0; i < fullTrucks; i++) {
+            plannedTrucks.push({
+                type: primaryTruck,
+                cost: truckCostMap[primaryTruck],
+                items: [{ name: item.name, qty: item.maxLimitPrimary, fraction: 1.0, unit: item.unit, maxLimit: item.maxLimitPrimary, weight: item.maxLimitPrimary * item.weightPerUnit }]
+            });
+        }
+        const rem = item.qty % item.maxLimitPrimary;
+        if (rem > 0) {
+            remainders.push({ name: item.name, qty: rem, prodRef: item, unit: item.unit, weightPerUnit: item.weightPerUnit });
+        }
+        totalFractionAllItems += (item.qty / item.maxLimitPrimary);
+    });
+
+    if (remainders.length > 0) {
+        let bestCandidate = null;
+        let minCost = Infinity;
+        const candidateTypes = ['6wheel', '10wheel', 'trailer'].filter(t => selectedTrucks.includes(t) && allowedForFactory.includes(t));
+
+        candidateTypes.forEach(candType => {
+            let totalFraction = 0;
+            let totalWeight = 0;
+            remainders.forEach(rem => {
+                let cap = getCapacity(rem.prodRef, candType);
+                totalFraction += (rem.qty / cap);
+                totalWeight += (rem.qty * rem.weightPerUnit);
+            });
+
+            if (totalFraction <= 1.0001 && totalWeight <= (maxWeightMap[candType] || Infinity)) {
+                let cost = truckCostMap[candType];
+                if (cost < minCost || bestCandidate === null) {
+                    minCost = cost;
+                    bestCandidate = candType;
+                }
             }
         });
-        
-        if (singleTripCandidates.length > 0) {
-            singleTripCandidates.sort((a, b) => a.cost - b.cost);
-            assignedTrips.push(singleTripCandidates[0]);
-            remainingItems.forEach(it => it.leftQty = 0);
-            break;
-        }
-        
-        let tripItems = [];
-        let currentFrac = 0;
-        for (let it of remainingItems) {
-            if (it.leftQty <= 0) continue;
-            let limit = getLimit(it, primaryTruck.type);
-            let neededFrac = it.leftQty / limit;
-            if (currentFrac + neededFrac <= 1.00001) {
-                tripItems.push({
-                    name: it.name,
-                    qty: it.leftQty,
-                    unit: it.unit,
-                    maxLimit: limit,
-                    fraction: neededFrac,
-                    weight: it.leftQty * it.weightPerUnit
-                });
-                currentFrac += neededFrac;
-                it.leftQty = 0;
-            } else {
-                let availableFrac = 1.0 - currentFrac;
-                let fillQty = Math.floor(availableFrac * limit);
-                if (fillQty === 0 && it.leftQty > 0 && tripItems.length === 0) fillQty = 1;
-                if (fillQty > 0) {
-                    let actualFrac = fillQty / limit;
-                    tripItems.push({
-                        name: it.name,
-                        qty: fillQty,
-                        unit: it.unit,
-                        maxLimit: limit,
-                        fraction: actualFrac,
-                        weight: fillQty * it.weightPerUnit
+
+        let remainderTruckType = bestCandidate || primaryTruck;
+        let currentTruckItems = [];
+        let currentSpace = 1.0;
+
+        remainders.forEach(rem => {
+            let cap = getCapacity(rem.prodRef, remainderTruckType);
+            let remFraction = rem.qty / cap;
+            let qtyLeft = rem.qty;
+
+            while (remFraction > 0.0001) {
+                if (currentSpace >= remFraction) {
+                    currentTruckItems.push({ name: rem.name, qty: qtyLeft, fraction: remFraction, unit: rem.unit, maxLimit: cap, weight: qtyLeft * rem.weightPerUnit });
+                    currentSpace -= remFraction;
+                    remFraction = 0;
+                } else {
+                    const assignQty = Math.floor(currentSpace * cap);
+                    if (assignQty > 0) {
+                        currentTruckItems.push({ name: rem.name, qty: assignQty, fraction: currentSpace, unit: rem.unit, maxLimit: cap, weight: assignQty * rem.weightPerUnit });
+                    }
+                    plannedTrucks.push({
+                        type: remainderTruckType,
+                        cost: truckCostMap[remainderTruckType],
+                        items: currentTruckItems
                     });
-                    currentFrac += actualFrac;
-                    it.leftQty -= fillQty;
+                    currentTruckItems = [];
+                    currentSpace = 1.0;
+                    qtyLeft -= assignQty;
+                    remFraction = qtyLeft / cap;
                 }
-                break;
             }
-        }
-        if (tripItems.length > 0) {
-            assignedTrips.push({
-                truckType: primaryTruck.type,
-                truckName: primaryTruck.name,
-                cost: deliveryType === 'รับสินค้าเอง' ? 0 : primaryTruck.cost,
-                fractionTotal: Math.min(1.0, currentFrac),
-                items: tripItems
+        });
+
+        if (currentTruckItems.length > 0) {
+            plannedTrucks.push({
+                type: remainderTruckType,
+                cost: truckCostMap[remainderTruckType],
+                items: currentTruckItems
             });
-        } else {
-            break;
         }
     }
+
+    const numTrucks = plannedTrucks.length;
+    const baseTotalFreight = roundTax(plannedTrucks.reduce((sum, t) => sum + t.cost, 0));
+
+    let projectDisplay = project;
+    if (district || province) { let loc = []; if (district) loc.push(`อ.${district}`); if (province) loc.push(`จ.${province}`); projectDisplay += ` (${loc.join(' ')})`; }
     
-    const baseTotalFreight = assignedTrips.reduce((sum, t) => sum + t.cost, 0);
-    let totalFractionAllItems = itemsToProcess.reduce((sum, i) => sum + (i.qty / getLimit(i, primaryTruck.type)), 0);
+    document.getElementById('outProject').innerText = projectDisplay;
+    document.getElementById('outCustomerGroup').innerText = `${customerGrp}\n(${company})`;
+    document.getElementById('outDealer').innerText = currentUser ? currentUser.fullName : '-';
+    document.getElementById('outFactory').innerText = factory;
+    document.getElementById('outDeliveryType').innerText = deliveryType;
+    
+    const usedTruckTypes = [...new Set(plannedTrucks.map(t => truckNameMap[t.type]))];
+    document.getElementById('outTruck').innerText = usedTruckTypes.join(' + ');
+
+    const now = new Date(); 
+    document.getElementById('validityPeriod').innerText = `${now.toLocaleDateString('th-TH')} ถึง ${new Date(now.getFullYear(), now.getMonth() + 1, 0).toLocaleDateString('th-TH')}`; 
+    document.getElementById('printTimestamp').innerText = `(พิมพ์เมื่อ: ${now.toLocaleString('th-TH')})`;
+
     let totalFractionTarget = 0;
     if (freightMode === 'all') totalFractionTarget = totalFractionAllItems;
-    else {
-        itemsToProcess.forEach(item => { if (item.cat === freightMode) totalFractionTarget += (item.qty / getLimit(item, primaryTruck.type)); });
-        if (totalFractionTarget === 0) totalFractionTarget = totalFractionAllItems;
+    else { 
+        itemsToProcess.forEach(item => { if (item.cat === freightMode) totalFractionTarget += (item.qty / item.maxLimitPrimary); }); 
+        if (totalFractionTarget === 0) totalFractionTarget = totalFractionAllItems; 
     }
-    
+
     window.currentResultItems = itemsToProcess.map(item => {
-        let maxL = getLimit(item, primaryTruck.type);
         let assignedFreightCost = 0;
         if (freightMode === 'all' || totalFractionTarget === totalFractionAllItems) {
-            assignedFreightCost = totalFractionTarget > 0 ? ((item.qty / maxL) / totalFractionTarget) * baseTotalFreight : 0;
-        } else {
-            if (item.cat === freightMode) {
-                assignedFreightCost = totalFractionTarget > 0 ? ((item.qty / maxL) / totalFractionTarget) * baseTotalFreight : 0;
-            }
+            assignedFreightCost = totalFractionTarget > 0 ? ((item.qty / item.maxLimitPrimary) / totalFractionTarget) * baseTotalFreight : 0;
+        } else { 
+            if (item.cat === freightMode) assignedFreightCost = totalFractionTarget > 0 ? ((item.qty / item.maxLimitPrimary) / totalFractionTarget) * baseTotalFreight : 0; 
         }
         let freightPerUnitVal = roundTax(assignedFreightCost / item.qty) || 0;
         let isBlock = (item.cat === 'Block G2' || item.cat === 'Block G4');
         let freeQty = 0;
         if (isBlock) {
-            let fullT = Math.floor(item.qty / maxL);
-            let remT = item.qty % maxL;
-            freeQty = (fullT * Math.round(maxL * 0.01)) + Math.round(remT * 0.01);
+            let fullT = Math.floor(item.qty / item.maxLimitPrimary);
+            let remT = item.qty % item.maxLimitPrimary;
+            let freePerFull = Math.round(item.maxLimitPrimary * 0.01);
+            let freeForRem = Math.round(remT * 0.01);
+            freeQty = (fullT * freePerFull) + freeForRem;
         }
-        return {
-            name: item.name, cat: item.cat, qty: item.qty, freeQty: freeQty, unit: item.unit,
-            netUnitPrice: item.netUnitPrice, originalFreightVal: freightPerUnitVal, freightPerUnitVal: freightPerUnitVal,
-            unitPlusFreight: roundTax(item.netUnitPrice + freightPerUnitVal), maxLimit: maxL
+        return { 
+            name: item.name, 
+            cat: item.cat, 
+            qty: item.qty, 
+            freeQty: freeQty, 
+            unit: item.unit, 
+            netUnitPrice: item.netUnitPrice, 
+            originalFreightVal: freightPerUnitVal, 
+            freightPerUnitVal: freightPerUnitVal, 
+            unitPlusFreight: roundTax(item.netUnitPrice + freightPerUnitVal), 
+            maxLimit: item.maxLimitPrimary 
         };
     });
-    
+
     renderResultTable();
-    
-    let truckCounts = {};
-    assignedTrips.forEach(t => {
-        truckCounts[t.truckName] = (truckCounts[t.truckName] || 0) + 1;
+
+    // ประกอบ Card แผนจัดเที่ยวรถ (User จะไม่เห็นราคาค่าขนส่ง)
+    let groupedTrucks = [];
+    plannedTrucks.forEach(t => {
+        let sig = t.type + '_' + t.items.map(i => `${i.name}_${i.qty}`).sort().join('|');
+        let existing = groupedTrucks.find(g => g.sig === sig);
+        if (existing) existing.count++; 
+        else groupedTrucks.push({ sig: sig, truckType: t.type, items: t.items, cost: t.cost, count: 1 });
     });
-    let truckDetailSummaryParts = [];
-    Object.keys(truckCounts).forEach(tName => {
-        truckDetailSummaryParts.push(`${tName} ${truckCounts[tName]} คัน`);
-    });
-    document.getElementById('outTotalTrucks').innerText = assignedTrips.length;
-    document.getElementById('outTruckSummary').innerText = `(${truckDetailSummaryParts.join(', ')})`;
-    
+
+    const isAdmin = currentUser && currentUser.role === 'Admin';
     let truckHtml = '', tripCounter = 1, truckPlanTextArr = [];
-    assignedTrips.forEach((trip) => {
-        let tripLabel = `🚚 เที่ยวที่ ${tripCounter}: ${trip.truckName}`;
-        tripCounter++;
-        let itemsHtml = trip.items.map(i => `
+    groupedTrucks.forEach((group) => {
+        let t = group.items, count = group.count;
+        let tripLabel = count === 1 ? `🚚 เที่ยวที่ ${tripCounter} (${truckNameMap[group.truckType]})` : `🚚 เที่ยวที่ ${tripCounter} - ${tripCounter + count - 1} (${truckNameMap[group.truckType]} รวม ${count} เที่ยว)`;
+        let simpleTripLabel = count === 1 ? `เที่ยวที่ ${tripCounter} [${truckNameMap[group.truckType]}]` : `เที่ยวที่ ${tripCounter}-${tripCounter + count - 1} [${truckNameMap[group.truckType]}]`;
+        tripCounter += count;
+
+        let costTag = (isAdmin && group.cost > 0) ? `<span class="text-xs text-orange-600 font-bold ml-auto">(ค่าขนส่ง: ${(group.cost * count).toLocaleString()} บาท)</span>` : '';
+
+        let itemsHtml = t.map(i => `
             <div class="flex justify-between items-center border-b border-gray-100 py-1.5 last:border-0">
                 <span class="font-medium text-indigo-700">${i.name}</span>
-                <span class="text-xs text-gray-600 bg-gray-50 px-2 py-0.5 rounded border border-gray-200">
-                    <b class="text-sm text-gray-800">${i.qty.toLocaleString()}</b> / พิกัด ${i.maxLimit.toLocaleString()} ${i.unit}
-                </span>
+                <span class="text-xs text-gray-600 bg-gray-50 px-2 py-0.5 rounded border border-gray-200"><b class="text-sm text-gray-800">${i.qty.toLocaleString()}</b> / <span class="text-gray-400">พิกัด ${i.maxLimit.toLocaleString()} ${i.unit}</span></span>
             </div>`).join('');
-        let itemsText = trip.items.map(i => `${i.name} (${i.qty} ${i.unit})`).join(', ');
-        
-        let planTripLog = isAdmin 
-            ? `${tripLabel}: ${itemsText} [ค่าเที่ยว: ${trip.cost.toLocaleString()} บ.]`
-            : `${tripLabel}: ${itemsText}`;
-        truckPlanTextArr.push(planTripLog);
+        let itemsText = t.map(i => `${i.name} (${i.qty} / พิกัด ${i.maxLimit} ${i.unit})`).join(', ');
+        truckPlanTextArr.push(`${simpleTripLabel}: ${itemsText}`);
 
-        let totalWeightTon = (trip.items.reduce((sum, i) => sum + i.weight, 0) / 1000).toFixed(2);
-        let statusColor = trip.fractionTotal >= 0.90 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-yellow-50 text-yellow-700 border-yellow-200';
+        let totalFracValue = t.reduce((sum, i) => sum + i.fraction, 0);
+        let totalWeightTon = (t.reduce((sum, i) => sum + i.weight, 0) / 1000).toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        let statusColor = totalFracValue >= 0.95 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-yellow-50 text-yellow-700 border-yellow-200';
         
-        let badgeContent = isAdmin
-            ? `บรรทุก ${(trip.fractionTotal * 100).toFixed(1)}% | ${trip.cost.toLocaleString()} บ.`
-            : `บรรทุก ${(trip.fractionTotal * 100).toFixed(1)}%`;
+        let suggestionHtml = '';
+        if (totalFracValue < 0.999) {
+            let maxCapG2 = group.truckType === '6wheel' ? 1200 : group.truckType === '10wheel' ? 2000 : 4554;
+            let suggestedBlocks = Math.floor((1.0 - totalFracValue) * maxCapG2);
+            if (suggestedBlocks > 0) suggestionHtml = `<div class="mt-3 pt-2 border-t border-gray-100 text-sm text-green-700 bg-green-50 p-2 rounded">💡 <b>พื้นที่เหลือ:</b> สั่ง Block 20x60x7.5cm เพิ่มได้อีก <b>${suggestedBlocks.toLocaleString()}</b> ก้อน</div>`;
+        }
 
         truckHtml += `<div class="bg-white p-4 border border-gray-200 rounded-xl shadow-sm relative flex flex-col" style="page-break-inside: avoid;">
-            <div class="absolute top-4 right-4 ${statusColor} border text-xs px-2 py-1 rounded-full font-bold">
-                ${badgeContent}
-            </div>
+            <div class="absolute top-4 right-4 ${statusColor} border text-xs px-2 py-1 rounded-full font-bold">พื้นที่บรรทุก ${(totalFracValue * 100).toFixed(1)}%</div>
             <div class="font-bold text-gray-700 mb-3 border-b pb-2 flex items-center gap-2">
                 <span>${tripLabel}</span>
+                ${costTag}
             </div>
             <div class="text-sm flex-grow space-y-1 mb-3">${itemsHtml}</div>
-            <div class="mt-auto pt-2 border-t border-gray-100 flex justify-between items-center text-sm bg-gray-50 p-2 rounded">
-                <span class="text-gray-500 font-medium">⚖️ น้ำหนักรวม:</span>
-                <span class="font-bold text-blue-700 text-base">${totalWeightTon} ตัน</span>
-            </div>
+            <div class="mt-auto pt-2 border-t border-gray-100 flex justify-between items-center text-sm bg-gray-50 p-2 rounded"><span class="text-gray-500 font-medium">⚖️ น้ำหนักรวม:</span><span class="font-bold text-blue-700 text-base">${totalWeightTon} ตัน</span></div>
+            ${suggestionHtml}
         </div>`;
     });
+
     window.currentTruckPlanText = truckPlanTextArr.join('\n');
     document.getElementById('outTruckDetails').innerHTML = truckHtml;
-    
-    let projectDisplay = project;
-    if (district || province) {
-        let loc = [];
-        if (district) loc.push(`อ.${district}`);
-        if (province) loc.push(`จ.${province}`);
-        projectDisplay += ` (${loc.join(' ')})`;
-    }
-    document.getElementById('outProject').innerText = projectDisplay;
-    document.getElementById('outCustGroup').innerText = custGroup;
-    document.getElementById('outCompany').innerText = compName;
-    document.getElementById('outFactory').innerText = factory;
-    document.getElementById('outDeliveryType').innerText = deliveryType;
-    document.getElementById('outFuel').innerText = fuel.toFixed(2);
-    document.getElementById('outTerm').innerText = payCond === 'เงินสด' ? "เงินสด (หัก 2%)" : payCond;
-    const now = new Date();
-    document.getElementById('validityPeriod').innerText = `${now.toLocaleDateString('th-TH')} ถึง ${new Date(now.getFullYear(), now.getMonth() + 1, 0).toLocaleDateString('th-TH')}`;
-    document.getElementById('printTimestamp').innerText = `(พิมพ์เมื่อ: ${now.toLocaleString('th-TH')})`;
+    document.getElementById('outTotalTrucks').innerText = numTrucks;
     document.getElementById('resultArea').classList.remove('hidden');
     document.getElementById('resultArea').scrollIntoView({ behavior: 'smooth' });
-    setTimeout(() => { saveToGoogleSheets(); }, 500);
+
+    // หากกดจากปุ่มคำนวณ ให้ทำการบันทึกลงส่วนกลางอัตโนมัติ
+    if (isTriggeredByButton) {
+        saveToGoogleSheets(true);
+    }
 }
 
 function updateResultQty(idx, val) {
@@ -1366,17 +1301,19 @@ function updateResultQty(idx, val) {
         if(item.cat === 'Block G2' || item.cat === 'Block G4') {
             let fullT = Math.floor(newQty / item.maxLimit);
             let remT = newQty % item.maxLimit;
-            item.freeQty = (fullT * Math.round(item.maxLimit * 0.01)) + Math.round(remT * 0.01);
+            let freePerFull = Math.round(item.maxLimit * 0.01);
+            let freeForRem = Math.round(remT * 0.01);
+            item.freeQty = (fullT * freePerFull) + freeForRem;
         }
         renderResultTable();
     }
 }
 
-function updateResultFreeQty(idx, val) {
-    if (window.currentResultItems && window.currentResultItems[idx]) {
-        window.currentResultItems[idx].freeQty = parseFloat(val) || 0;
-        renderResultTable();
-    }
+function updateResultFreeQty(idx, val) { 
+    if (window.currentResultItems && window.currentResultItems[idx]) { 
+        window.currentResultItems[idx].freeQty = parseFloat(val) || 0; 
+        renderResultTable(); 
+    } 
 }
 
 function updateResultUnitPrice(idx, val) {
@@ -1389,65 +1326,255 @@ function updateResultUnitPrice(idx, val) {
     }
 }
 
+function updateResultFreight(idx, val) {
+    let newFreight = parseFloat(val); if(isNaN(newFreight) || newFreight < 0) newFreight = 0;
+    if (window.currentResultItems && window.currentResultItems[idx]) {
+        window.currentResultItems[idx].freightPerUnitVal = newFreight;
+        window.currentResultItems[idx].unitPlusFreight = roundTax(window.currentResultItems[idx].netUnitPrice + newFreight);
+        renderResultTable();
+    }
+}
+
 function updateFinalPayment() {
-    let discount = parseFloat(document.getElementById('creditNoteInput').value) || 0;
-    let finalAmount = window.currentGrandTotal - discount;
+    let discount = parseFloat(document.getElementById('creditNoteInput').value) || 0; 
+    let finalAmount = window.currentGrandTotal - discount; 
     if (finalAmount < 0) finalAmount = 0;
     document.getElementById('finalPayment').innerText = finalAmount.toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' บาท';
 }
 
 function renderResultTable() {
     let tblHtml = '', totalProductNetValue = 0, totalFreight = 0;
-    const isAdmin = currentUser && currentUser.role === 'Admin';
     window.currentResultItems.forEach((item, idx) => {
-        let itemNetTotal = roundTax(item.qty * item.netUnitPrice);
+        let itemNetTotal = roundTax(item.qty * item.netUnitPrice); 
         let itemFreight = roundTax(item.qty * item.freightPerUnitVal);
-        totalProductNetValue += itemNetTotal;
+        totalProductNetValue += itemNetTotal; 
         totalFreight += itemFreight;
+        
         let freeQtyHtml = (item.cat === 'Block G2' || item.cat === 'Block G4')
             ? `<input type="number" value="${item.freeQty}" min="0" onchange="updateResultFreeQty(${idx}, this.value)" class="qty-input w-16 border border-purple-300 rounded px-2 py-1 text-right text-sm font-bold text-purple-700 bg-purple-50 focus:outline-none focus:ring-2 focus:ring-purple-500 shadow-inner">`
             : `<span class="text-gray-400">-</span>`;
-        let priceInputHtml = isAdmin
-            ? `<div class="flex items-center justify-end"><input type="number" value="${item.netUnitPrice}" min="0" step="0.01" onchange="updateResultUnitPrice(${idx}, this.value)" class="price-input w-24 border border-indigo-300 rounded px-2 py-1 text-right text-sm font-bold text-indigo-700 bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner"></div>`
-            : `<span class="hidden"></span>`;
-        let freightCellHtml = isAdmin
-            ? `<td class="p-3 text-right text-orange-500 admin-only-cell">${item.freightPerUnitVal.toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>`
-            : `<td class="p-3 text-right text-orange-500 admin-only-cell hidden"></td>`;
-        let priceCellHtml = isAdmin
-            ? `<td class="p-3 text-right text-indigo-600 admin-only-cell">${priceInputHtml}</td>`
-            : `<td class="p-3 text-right text-indigo-600 admin-only-cell hidden"></td>`;
-        let totalCellHtml = isAdmin
-            ? `<td class="p-3 text-right font-medium admin-only-cell">${itemNetTotal.toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>`
-            : `<td class="p-3 text-right font-medium admin-only-cell hidden"></td>`;
-
+            
+        let isFreightEdited = item.freightPerUnitVal !== item.originalFreightVal;
+        let asteriskHtml = isFreightEdited ? `<span class="text-red-500 font-bold ml-1">*</span>` : `<span class="ml-1 w-2 inline-block"></span>`;
+        let priceInputHtml = `<div class="flex items-center justify-end"><input type="number" value="${item.netUnitPrice}" min="0" step="0.01" onchange="updateResultUnitPrice(${idx}, this.value)" class="price-input w-24 border border-indigo-300 rounded px-2 py-1 text-right text-sm font-bold text-indigo-700 bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner"></div>`;
+        let freightInputHtml = `<div class="flex items-center justify-end"><input type="number" value="${item.freightPerUnitVal}" min="0" step="0.01" onchange="updateResultFreight(${idx}, this.value)" class="freight-input w-20 border border-orange-300 rounded px-2 py-1 text-right text-sm font-bold text-orange-600 bg-orange-50 focus:outline-none focus:ring-2 focus:ring-orange-500 shadow-inner">${asteriskHtml}</div>`;
+        
         tblHtml += `<tr class="hover:bg-blue-50 transition border-b">
-            <td class="p-3"><div class="font-medium text-gray-800">${item.name}</div><div class="text-xs text-gray-500 mt-1">พิกัดบรรทุกหลัก: <span class="text-blue-600 font-semibold">${item.maxLimit.toLocaleString()}</span> ${item.unit}/คัน</div></td>
+            <td class="p-3"><div class="font-medium text-gray-800">${item.name}</div><div class="text-xs text-gray-500 mt-1">พิกัดบรรทุก: <span class="text-blue-600 font-semibold">${item.maxLimit.toLocaleString()}</span> ${item.unit}/คัน</div></td>
             <td class="p-3 text-right font-medium relative"><input type="number" value="${item.qty}" min="0" onchange="updateResultQty(${idx}, this.value)" class="qty-input w-24 border border-blue-300 rounded px-2 py-1 text-right text-sm font-bold text-blue-700 bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-inner"></td>
             <td class="p-3 text-right font-medium relative">${freeQtyHtml}</td>
             <td class="p-3 text-center text-gray-500">${item.unit}</td>
-            ${priceCellHtml}
-            ${totalCellHtml}
-            ${freightCellHtml}
+            <td class="p-3 text-right text-indigo-600 admin-cell">${priceInputHtml}</td>
+            <td class="p-3 text-right font-medium admin-cell">${itemNetTotal.toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+            <td class="p-3 text-right text-orange-500 admin-cell">${freightInputHtml}</td>
             <td class="p-3 text-right text-green-600 font-bold bg-green-50">${item.unitPlusFreight.toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
         </tr>`;
     });
+    
     document.getElementById('outProductTable').innerHTML = tblHtml;
-    totalProductNetValue = roundTax(totalProductNetValue);
+    totalProductNetValue = roundTax(totalProductNetValue); 
     totalFreight = roundTax(totalFreight);
-    const beforeVat = roundTax(totalProductNetValue + totalFreight);
-    const vat = roundTax(beforeVat * 0.07);
+    const beforeVat = roundTax(totalProductNetValue + totalFreight); 
+    const vat = roundTax(beforeVat * 0.07); 
     const grandTotal = roundTax(beforeVat + vat);
     const fmt = (v) => v.toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2});
     
-    // ตั้งค่าแสดงผลสรุปยอด
-    document.getElementById('sumProductNet').innerText = fmt(totalProductNetValue);
+    document.getElementById('sumProductNet').innerText = fmt(totalProductNetValue); 
     document.getElementById('sumFreight').innerText = fmt(totalFreight);
-    document.getElementById('sumBeforeVat').innerText = fmt(beforeVat);
+    document.getElementById('sumBeforeVat').innerText = fmt(beforeVat); 
     document.getElementById('vatDetailText').innerText = `(${fmt(beforeVat)} × 7%)`;
-    document.getElementById('sumVat').innerText = fmt(vat);
-    window.currentGrandTotal = grandTotal;
+    document.getElementById('sumVat').innerText = fmt(vat); 
+    window.currentGrandTotal = grandTotal; 
     document.getElementById('sumTotal').innerText = fmt(grandTotal);
     updateFinalPayment();
+    applyRoleVisibility();
+}
+
+function applyRoleVisibility() {
+    const isAdmin = currentUser && currentUser.role === 'Admin';
+    
+    document.querySelectorAll('.admin-only-field').forEach(el => {
+        if (isAdmin) el.classList.remove('hidden'); else el.classList.add('hidden');
+    });
+
+    document.querySelectorAll('.admin-cell').forEach(el => {
+        if (isAdmin) el.style.display = ''; else el.style.display = 'none';
+    });
+
+    document.querySelectorAll('.admin-row').forEach(el => {
+        if (isAdmin) el.style.display = 'flex'; else el.style.display = 'none';
+    });
+}
+
+function saveToGoogleSheets(isAutoSave = false) {
+    if (!GOOGLE_SCRIPT_URL) { 
+        if(!isAutoSave) alert('กรุณาระบุ URL ของ Web App Google Apps Script ครับ'); 
+        return; 
+    }
+    const btn = document.getElementById('btnSaveDB'); 
+    const originalText = btn.innerHTML;
+    if (!isAutoSave) {
+        btn.innerHTML = '⏳ <span>กำลังบันทึก...</span>'; 
+        btn.disabled = true;
+    } else {
+        showToast('⏳ กำลังบันทึกข้อมูลส่วนกลางอัตโนมัติ...', 'info');
+    }
+    
+    let productNamesList = window.currentResultItems.map(i => {
+        let isBlock = (i.cat === 'Block G2' || i.cat === 'Block G4');
+        return i.name + (isBlock && i.freeQty > 0 ? `(+แถม ${i.freeQty})` : '');
+    }).join('\n');
+    let productQtysList = window.currentResultItems.map(i => `${i.qty} ${i.unit}`).join('\n');
+    let productNetPricesList = window.currentResultItems.map(i => i.netUnitPrice.toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2})).join('\n');
+    let productFreightPerUnitsList = window.currentResultItems.map(i => i.freightPerUnitVal.toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2})).join('\n');
+    let productUnitPlusFreightsList = window.currentResultItems.map(i => i.unitPlusFreight.toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2})).join('\n');
+
+    let enrichedCart = cart.map(c => {
+        let pData = productData.find(p=>p.id===c.id);
+        let resItem = pData ? window.currentResultItems.find(r => r.name === pData.name) : null;
+        return {
+            id: c.id, qty: c.qty,
+            freeQty: resItem ? resItem.freeQty : 0,
+            freightPerUnitVal: resItem ? resItem.freightPerUnitVal : null
+        };
+    });
+    
+    const payload = {
+        action: 'save',
+        timestamp: new Date().toLocaleString('th-TH'),                       
+        sale: currentUser ? currentUser.fullName : '-',
+        dealer: currentUser ? currentUser.fullName : '-',
+        username: currentUser ? currentUser.username : '',
+        project: document.getElementById('projectName').value || '-',
+        customerGroup: document.getElementById('customerGroup').value || '-',
+        companyName: document.getElementById('companyName').value || '-',
+        region: document.getElementById('detectedRegion').value || 'กลาง',
+        district: document.getElementById('district').value || '-',          
+        province: document.getElementById('province').value || '-',          
+        factory: document.getElementById('factory').value,            
+        truckType: document.getElementById('outTruck').innerText,            
+        delivery: document.getElementById('deliveryType').value,      
+        payment: document.getElementById('paymentCondition').value,               
+        fuelPrice: fuelPriceVal.toFixed(2),             
+        productNames: productNamesList,                                      
+        productQtys: productQtysList,                                        
+        productNetPrices: productNetPricesList,                              
+        productFreightPerUnits: productFreightPerUnitsList,                  
+        productUnitPlusFreights: productUnitPlusFreightsList,                
+        freightCostPerTrip: `6w:${document.getElementById('freightCost6w').value || 0}, 10w:${document.getElementById('freightCost10w').value || 0}, T:${document.getElementById('freightCostTrailer').value || 0}`,
+        totalTrucks: document.getElementById('outTotalTrucks').innerText,    
+        truckPlan: window.currentTruckPlanText,                              
+        productNet: document.getElementById('sumProductNet').innerText,      
+        totalFreight: document.getElementById('sumFreight').innerText,       
+        vat: document.getElementById('sumVat').innerText,
+        grandTotal: document.getElementById('finalPayment').innerText,       
+        freightMode: document.getElementById('freightAllocationMode').value,
+        rawCart: JSON.stringify(enrichedCart)
+    };
+    
+    fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if(data.status === 'success') {
+            if (!isAutoSave) {
+                btn.innerHTML = '✅ <span>บันทึกสำเร็จ</span>'; 
+                btn.classList.replace('bg-blue-600', 'bg-green-600');
+                setTimeout(() => { btn.innerHTML = originalText; btn.disabled = false; btn.classList.replace('bg-green-600', 'bg-blue-600'); }, 3000);
+            } else {
+                showToast('✅ บันทึกข้อมูลลงส่วนกลางเรียบร้อยแล้ว', 'success');
+            }
+            fetchServerHistory(true);
+        } else throw new Error('Server error');
+    }).catch(error => { 
+        if (!isAutoSave) {
+            btn.innerHTML = originalText; 
+            btn.disabled = false;
+            alert('❌ เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+        } else {
+            showToast('❌ บันทึกลงส่วนกลางไม่สำเร็จ', 'error');
+        }
+    });
+}
+
+function preExportProcess() {
+    document.getElementById('actionButtons').classList.add('hidden'); 
+    document.querySelectorAll('.editable-hint').forEach(el => el.classList.add('hidden'));
+    document.getElementById('validityPeriod').classList.remove('border-b-2', 'border-dashed'); 
+    document.getElementById('remarkText').classList.remove('border-b', 'border-dashed');
+    if (!window.isTruckPlanVisible) document.getElementById('truckPlanHeaderWrap').classList.add('hidden');
+    
+    document.querySelectorAll('.qty-input').forEach(input => {
+        const span = document.createElement('span'); span.className = `export-temp-span font-bold text-blue-700`; span.innerText = (parseFloat(input.value) || 0).toLocaleString('th-TH');
+        input.parentElement.appendChild(span); input.style.display = 'none';
+    });
+    document.querySelectorAll('.price-input').forEach(input => {
+        const span = document.createElement('span'); span.className = `export-temp-span font-bold text-indigo-700`; span.innerText = (parseFloat(input.value) || 0).toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        input.parentElement.appendChild(span); input.style.display = 'none';
+    });
+    document.querySelectorAll('.freight-input').forEach(input => {
+        const span = document.createElement('span'); span.className = `export-temp-span font-bold text-orange-600`; span.innerText = (parseFloat(input.value) || 0).toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        input.parentElement.insertBefore(span, input); input.style.display = 'none';
+        if (input.nextElementSibling && input.nextElementSibling.innerText === '*') input.nextElementSibling.style.display = 'none';
+    });
+    const cnInput = document.getElementById('creditNoteInput');
+    if(cnInput) {
+        const span = document.createElement('span'); span.className = `export-temp-span font-bold text-red-600 text-lg mr-2`; span.innerText = (parseFloat(cnInput.value) || 0).toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        cnInput.parentNode.insertBefore(span, cnInput); cnInput.style.display = 'none';
+    }
+}
+
+function postExportProcess() {
+    document.getElementById('actionButtons').classList.remove('hidden'); 
+    document.querySelectorAll('.editable-hint').forEach(el => el.classList.remove('hidden'));
+    document.getElementById('validityPeriod').classList.add('border-b-2', 'border-dashed'); 
+    document.getElementById('remarkText').classList.add('border-b', 'border-dashed');
+    if (!window.isTruckPlanVisible) document.getElementById('truckPlanHeaderWrap').classList.remove('hidden');
+    document.querySelectorAll('.export-temp-span').forEach(el => el.remove());
+    document.querySelectorAll('.qty-input, .price-input, .freight-input').forEach(input => input.style.display = '');
+    document.querySelectorAll('.text-red-500').forEach(ast => ast.style.display = '');
+    const cnInput = document.getElementById('creditNoteInput'); if(cnInput) cnInput.style.display = '';
+}
+
+function saveImage() {
+    preExportProcess(); 
+    html2canvas(document.getElementById('resultArea'), { scale: 2, backgroundColor: '#ffffff', useCORS: true }).then(canvas => {
+        const link = document.createElement('a'); link.download = `เอกสารแจ้งราคา_${document.getElementById('projectName').value || 'ไม่มีชื่อ'}_${new Date().getTime()}.png`;
+        link.href = canvas.toDataURL("image/png"); link.click(); postExportProcess();
+    }).catch(() => postExportProcess());
+}
+
+function savePDF() {
+    preExportProcess(); 
+    html2canvas(document.getElementById('resultArea'), { scale: 2, backgroundColor: '#ffffff', useCORS: true }).then(canvas => {
+        const imgData = canvas.toDataURL("image/jpeg", 1.0); const pdfWidth = 210, pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+        const pdf = new window.jspdf.jsPDF({ orientation: pdfHeight > pdfWidth ? 'portrait' : 'landscape', unit: 'mm', format: [pdfWidth, pdfHeight] });
+        pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight); 
+        pdf.save(`เอกสารแจ้งราคา_${document.getElementById('projectName').value || 'ไม่มีชื่อ'}_${new Date().getTime()}.pdf`);
+        postExportProcess();
+    }).catch(() => postExportProcess());
+}
+
+// ปุ่มเริ่มต้นการคำนวณใหม่ (Reset Form & State)
+function clearAll() {
+    document.getElementById('projectName').value = '';
+    document.getElementById('customerGroup').value = '';
+    document.getElementById('companyName').value = '';
+    document.getElementById('district').value = '';
+    document.getElementById('province').value = '';
+    document.getElementById('detectedRegion').value = '';
+    document.getElementById('freightCost6w').value = '';
+    document.getElementById('freightCost10w').value = '';
+    document.getElementById('freightCostTrailer').value = '';
+    if(document.getElementById('creditNoteInput')) document.getElementById('creditNoteInput').value = '0';
+
+    cart = [];
+    renderCart();
+    document.getElementById('resultArea').classList.add('hidden');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function handleLogin(event) {
@@ -1458,11 +1585,16 @@ function handleLogin(event) {
     const errEl = document.getElementById('loginErrorMessage');
     errEl.classList.add('hidden');
     btnSubmit.disabled = true;
-    btnSubmit.innerHTML = '⏳ กำลังตรวจสอบ...';
+    btnSubmit.innerHTML = '⏳ กำลังตรวจสอบรหัสผ่าน...';
+
     fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'login', username: userEl.value.trim(), password: passEl.value.trim() })
+        body: JSON.stringify({
+            action: 'login',
+            username: userEl.value,
+            password: passEl.value
+        })
     })
     .then(res => res.json())
     .then(data => {
@@ -1476,8 +1608,8 @@ function handleLogin(event) {
             btnSubmit.innerHTML = '🔒 เข้าสู่ระบบ';
         }
     })
-    .catch(() => {
-        errEl.innerText = '❌ เกิดข้อผิดพลาดในการเชื่อมต่อ';
+    .catch(err => {
+        errEl.innerText = '❌ เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์';
         errEl.classList.remove('hidden');
         btnSubmit.disabled = false;
         btnSubmit.innerHTML = '🔒 เข้าสู่ระบบ';
@@ -1498,16 +1630,73 @@ function applyLoginState(user) {
     currentUser = user;
     document.getElementById('loginOverlay').style.display = 'none';
     document.getElementById('mainAppContent').classList.remove('hidden');
+
     document.getElementById('currentLoggedInSale').innerText = user.fullName;
+    document.getElementById('dealerFullNameDisplay').value = user.fullName;
     document.getElementById('saleName').value = user.fullName;
-    document.getElementById('saleNameDisplay').value = user.fullName;
-    document.getElementById('dealerName').value = user.fullName;
-    applyUserPermissions(user);
+    document.getElementById('userRoleBadge').innerText = user.role;
+
+    // กรองประเภทรถตาม AllowedTrucks
+    const allowedTrucks = user.allowedTrucks || ['trailer'];
+    const show6w = user.role === 'Admin' || allowedTrucks.includes('6wheel');
+    const show10w = user.role === 'Admin' || allowedTrucks.includes('10wheel');
+    const showTrailer = user.role === 'Admin' || allowedTrucks.includes('trailer');
+
+    document.getElementById('truckOptWrap6w').style.display = show6w ? '' : 'none';
+    document.getElementById('truckOptWrap10w').style.display = show10w ? '' : 'none';
+    document.getElementById('truckOptWrapTrailer').style.display = showTrailer ? '' : 'none';
+
+    document.getElementById('truckOpt6Wheel').checked = false;
+    document.getElementById('truckOpt10Wheel').checked = false;
+    document.getElementById('truckOptTrailer').checked = showTrailer;
+    if (!showTrailer) {
+        if (show10w) document.getElementById('truckOpt10Wheel').checked = true;
+        else if (show6w) document.getElementById('truckOpt6Wheel').checked = true;
+    }
+
+    // กรองประเภทการจัดส่งตาม AllowedDeliveries
+    const deliverySel = document.getElementById('deliveryType');
+    deliverySel.innerHTML = '';
+    const allDeliveries = ['จัดส่งสินค้าให้', 'รับสินค้าเอง'];
+    allDeliveries.forEach(d => {
+        if (user.role === 'Admin' || (user.allowedDeliveries && user.allowedDeliveries.includes(d))) {
+            deliverySel.appendChild(new Option(d, d));
+        }
+    });
+
+    // กรองเงื่อนไขการชำระเงินตาม AllowedPayments ให้ตรงกับสิทธิ์ที่ได้รับ
+    const paySel = document.getElementById('paymentCondition');
+    paySel.innerHTML = '';
+    const paymentDict = {
+        'เงินสด': 'เงินสด(ส่วนลด 2%) จากราคาสินค้าต่อหน่วย',
+        'โอนเงินก่อนส่งสินค้า': 'โอนเงินก่อนส่งสินค้า',
+        'เงินเชื่อ': 'เงินเชื่อ',
+        'เครดิต 60 วัน': 'เครดิต 60 วัน',
+        '-': '-'
+    };
+
+    if (user.role === 'Admin') {
+        Object.keys(paymentDict).forEach(key => {
+            paySel.appendChild(new Option(paymentDict[key], key));
+        });
+    } else {
+        const allowedPay = user.allowedPayments || ['เงินสด'];
+        allowedPay.forEach(key => {
+            const cleanKey = key.trim();
+            if (paymentDict[cleanKey]) {
+                paySel.appendChild(new Option(paymentDict[cleanKey], cleanKey));
+            } else if (cleanKey !== '') {
+                paySel.appendChild(new Option(cleanKey, cleanKey));
+            }
+        });
+    }
+
+    applyRoleVisibility();
     fetchInitialData();
 }
 
 function handleLogout() {
-    if(confirm('ต้องการออกจากระบบใช่หรือไม่?')) {
+    if(confirm('คุณต้องการออกจากระบบใช่หรือไม่?')) {
         localStorage.removeItem('loggedInUser');
         checkLoginStatus();
     }
@@ -1519,53 +1708,56 @@ function openChangePasswordModal() {
     document.getElementById('confirmNewPassword').value = '';
     document.getElementById('changePassErrorMessage').classList.add('hidden');
     document.getElementById('changePassSuccessMessage').classList.add('hidden');
-    document.getElementById('changePasswordModal').classList.remove('hidden');
-    document.getElementById('changePasswordModal').classList.add('flex');
+    const modal = document.getElementById('changePasswordModal');
+    modal.classList.remove('hidden'); modal.classList.add('flex');
 }
 
 function closeChangePasswordModal() {
-    document.getElementById('changePasswordModal').classList.add('hidden');
-    document.getElementById('changePasswordModal').classList.remove('flex');
+    const modal = document.getElementById('changePasswordModal');
+    modal.classList.add('hidden'); modal.classList.remove('flex');
 }
 
 function handleChangePassword(event) {
     event.preventDefault();
-    const oldP = document.getElementById('oldPassword').value;
-    const newP = document.getElementById('newPassword').value;
-    const cNewP = document.getElementById('confirmNewPassword').value;
-    const err = document.getElementById('changePassErrorMessage');
-    const succ = document.getElementById('changePassSuccessMessage');
-    const btn = document.getElementById('btnChangePassSubmit');
-    err.classList.add('hidden');
-    succ.classList.add('hidden');
-    if (newP !== cNewP) {
-        err.innerText = '❌ รหัสผ่านใหม่ไม่ตรงกัน';
-        err.classList.remove('hidden');
-        return;
+    const oldPass = document.getElementById('oldPassword').value;
+    const newPass = document.getElementById('newPassword').value;
+    const confirmNewPass = document.getElementById('confirmNewPassword').value;
+    const errEl = document.getElementById('changePassErrorMessage');
+    const succEl = document.getElementById('changePassSuccessMessage');
+    const btnSubmit = document.getElementById('btnChangePassSubmit');
+    errEl.classList.add('hidden'); succEl.classList.add('hidden');
+
+    if (newPass !== confirmNewPass) {
+        errEl.innerText = '❌ รหัสผ่านใหม่และยืนยันรหัสผ่านไม่ตรงกัน';
+        errEl.classList.remove('hidden'); return;
     }
-    const user = JSON.parse(localStorage.getItem('loggedInUser') || '{}');
-    btn.disabled = true;
+
+    btnSubmit.disabled = true; btnSubmit.innerHTML = '⏳ กำลังบันทึก...';
     fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'changePassword', username: user.username, oldPassword: oldP, newPassword: newP })
+        body: JSON.stringify({
+            action: 'changePassword',
+            username: currentUser.username,
+            oldPassword: oldPass,
+            newPassword: newPass
+        })
     })
     .then(res => res.json())
     .then(data => {
-        btn.disabled = false;
+        btnSubmit.disabled = false; btnSubmit.innerHTML = 'บันทึกรหัสผ่าน';
         if (data.status === 'success') {
-            succ.innerText = '✅ เปลี่ยนรหัสผ่านเรียบร้อยแล้ว';
-            succ.classList.remove('hidden');
-            setTimeout(closeChangePasswordModal, 2000);
+            succEl.innerText = '✅ เปลี่ยนรหัสผ่านใหม่เรียบร้อยแล้ว!';
+            succEl.classList.remove('hidden');
+            setTimeout(closeChangePasswordModal, 1500);
         } else {
-            err.innerText = data.message || 'เกิดข้อผิดพลาด';
-            err.classList.remove('hidden');
+            errEl.innerText = data.message || 'เกิดข้อผิดพลาด';
+            errEl.classList.remove('hidden');
         }
-    })
-    .catch(() => {
-        btn.disabled = false;
-        err.innerText = '❌ เกิดข้อผิดพลาดในการเชื่อมต่อ';
-        err.classList.remove('hidden');
+    }).catch(() => {
+        btnSubmit.disabled = false; btnSubmit.innerHTML = 'บันทึกรหัสผ่าน';
+        errEl.innerText = '❌ เชื่อมต่อเซิร์ฟเวอร์ล้มเหลว';
+        errEl.classList.remove('hidden');
     });
 }
 
@@ -1573,99 +1765,83 @@ function toggleHistory() {
     const modal = document.getElementById('historyModal');
     if (modal.classList.contains('hidden')) {
         document.getElementById('historySearchInput').value = '';
-        modal.classList.remove('hidden');
-        modal.classList.add('flex');
-        if (globalServerHistory.length === 0) {
-            fetchServerHistory();
-        } else {
-            renderHistoryTable('');
-        }
+        modal.classList.remove('hidden'); modal.classList.add('flex');
+        if (isHistoryLoaded && globalServerHistory.length > 0) renderHistoryTable('');
+        else fetchServerHistory(false);
     } else {
         closeHistory();
     }
 }
 
-function closeHistory() {
-    document.getElementById('historyModal').classList.add('hidden');
-    document.getElementById('historyModal').classList.remove('flex');
+function closeHistory() { 
+    document.getElementById('historyModal').classList.add('hidden'); 
+    document.getElementById('historyModal').classList.remove('flex'); 
 }
 
 function fetchServerHistory(forceRefresh = false) {
-    const tbody = document.getElementById('historyTableBody');
-    tbody.innerHTML = '<tr><td colspan="7" class="text-center p-8 text-blue-600 font-bold">⚡ กำลังเชื่อมต่อประวัติอย่างรวดเร็ว...</td></tr>';
-    const url = GOOGLE_SCRIPT_URL + (forceRefresh ? ('?action=get&_t=' + new Date().getTime()) : '?action=get');
-    fetch(url)
-    .then(res => res.json())
-    .then(data => {
-        globalServerHistory = (data.history || []).map((h, i) => ({
-            ...h, 
-            originalIndex: i,
-            uniqueId: h.rowId ? String(h.rowId) : String(i)
-        }));
+    if (!forceRefresh && isHistoryLoaded && globalServerHistory.length > 0) {
         renderHistoryTable('');
-        initSaleDealerAutocomplete();
-    })
-    .catch(() => {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center p-8 text-red-500 font-bold">❌ ไม่สามารถดึงประวัติได้</td></tr>';
-    });
-}
-
-function renderHistoryTable(filterText = '') {
-    const tbody = document.getElementById('historyTableBody');
-    let fText = filterText.toLowerCase();
-    const isAdmin = currentUser && currentUser.role === 'Admin';
-    const currentUName = currentUser ? (currentUser.username || '').toLowerCase() : '';
-    const currentFullName = currentUser ? (currentUser.fullName || '').toLowerCase() : '';
-
-    let userAccessibleHistory = globalServerHistory.filter(h => {
-        if (isAdmin) return true;
-        let rowUser = (h.username || '').toLowerCase();
-        let rowSale = (h.sale || '').toLowerCase();
-        let rowDealer = (h.dealer || '').toLowerCase();
-        return (
-            (rowUser && rowUser === currentUName) ||
-            (rowSale && (rowSale === currentFullName || rowSale === currentUName)) ||
-            (rowDealer && (rowDealer === currentFullName || rowDealer === currentUName))
-        );
-    });
-
-    let filtered = userAccessibleHistory.filter(h =>
-        (h.project && h.project.toLowerCase().includes(fText)) ||
-        (h.companyName && h.companyName.toLowerCase().includes(fText)) ||
-        (h.sale && h.sale.toLowerCase().includes(fText)) ||
-        (h.dealer && h.dealer.toLowerCase().includes(fText)) ||
-        (h.timestamp && h.timestamp.includes(fText))
-    );
-
-    if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" class="text-center p-8 text-gray-500 font-medium">ไม่พบรายการประวัติการคำนวณ${isAdmin ? '' : 'ของคุณ'}</td></tr>`;
         return;
     }
-
-    tbody.innerHTML = filtered.map(h => {
-        let cartText = h.productNames ? h.productNames.replace(/\n/g, '<br>') : '-';
-        let groupComp = `${h.customerGroup || '-'}<br><span class="text-xs text-blue-600">${h.companyName || '-'}</span>`;
-        let targetId = h.uniqueId;
-        return `<tr class="hover:bg-blue-50 transition border-b">
-            <td class="p-3 text-xs text-gray-500">${h.timestamp || '-'}</td>
-            <td class="p-3 font-semibold text-blue-700">${h.project || '-'}</td>
-            <td class="p-3 text-sm">${groupComp}</td>
-            <td class="p-3 text-center text-sm text-gray-700">${h.delivery || '-'}</td>
-            <td class="p-3 text-sm text-gray-600">${cartText}</td>
-            <td class="p-3 text-center text-sm text-gray-700">${h.dealer || h.sale || '-'}</td>
-            <td class="p-3 text-center align-middle">
-                <div class="flex flex-col gap-1 items-center">
-                    <button onclick="viewHistory('${targetId}')" class="w-full bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-700 shadow-sm">ดูข้อมูล</button>
-                    <button onclick="loadHistory('${targetId}')" class="w-full bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-indigo-200 shadow-sm">โหลดฟอร์ม</button>
-                    <button onclick="deleteHistory('${h.rowId || targetId}')" class="w-full bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-200 shadow-sm">ลบ</button>
-                </div>
-            </td>
-        </tr>`;
-    }).join('');
+    document.getElementById('historyTableBody').innerHTML = '<tr><td colspan="6" class="text-center p-8 text-gray-500 font-bold">⏳ กำลังโหลดประวัติ...</td></tr>';
+    
+    fetch(GOOGLE_SCRIPT_URL + '?action=getHistoryOnly&_t=' + new Date().getTime())
+    .then(res => res.json())
+    .then(data => {
+        globalServerHistory = (data || []).map((h, i) => ({...h, originalIndex: i}));
+        localStorage.setItem('cachedServerHistory', JSON.stringify(globalServerHistory));
+        isHistoryLoaded = true;
+        renderHistoryTable('');
+        initProjectAutocomplete();
+    }).catch(() => {
+        document.getElementById('historyTableBody').innerHTML = '<tr><td colspan="6" class="text-center p-8 text-red-500 font-bold">❌ ดึงข้อมูลประวัติไม่สำเร็จ</td></tr>';
+    });
 }
 
-function filterServerHistory() {
-    renderHistoryTable(document.getElementById('historySearchInput').value);
+// กรองประวัติย้อนหลัง: Role User แสดงเฉพาะของตนเอง / Admin เห็นทั้งหมด
+function renderHistoryTable(filterText = '') {
+    let sourceData = globalServerHistory;
+    
+    if (currentUser && currentUser.role !== 'Admin') {
+        const curUserFullName = (currentUser.fullName || '').trim().toLowerCase();
+        const curUsername = (currentUser.username || '').trim().toLowerCase();
+        sourceData = sourceData.filter(h => {
+            const sale = (h.sale || '').trim().toLowerCase();
+            const dealer = (h.dealer || '').trim().toLowerCase();
+            const uname = (h.username || '').trim().toLowerCase();
+            return sale === curUserFullName || dealer === curUserFullName || uname === curUsername;
+        });
+    }
+
+    let filteredHist = sourceData.filter(h => 
+        (h.project && h.project.toLowerCase().includes(filterText.toLowerCase())) || 
+        (h.sale && h.sale.toLowerCase().includes(filterText.toLowerCase())) || 
+        (h.timestamp && String(h.timestamp).includes(filterText))
+    );
+
+    let html = filteredHist.length === 0 ? `<tr><td colspan="6" class="text-center p-8 text-gray-500">ไม่พบประวัติรายการ</td></tr>` : filteredHist.map(h => {
+        let cartText = h.productNames ? String(h.productNames).replace(/\n/g, '<br>') : '-';
+        let delBtn = currentUser && currentUser.role === 'Admin' 
+            ? `<button onclick="deleteHistory(${h.rowId})" class="w-full bg-red-100 text-red-700 px-2 py-1 rounded text-xs font-bold hover:bg-red-200 mt-1">ลบ</button>` 
+            : '';
+        return `<tr class="hover:bg-blue-50 transition border-b">
+                <td class="p-3 text-xs text-gray-500">${h.timestamp || '-'}</td>
+                <td class="p-3 font-semibold text-blue-700">${h.project || '-'}<br><span class="text-xs text-gray-400">${h.companyName || ''}</span></td>
+                <td class="p-3 text-center text-sm text-gray-700">${h.delivery || '-'}</td>
+                <td class="p-3 text-sm text-gray-600">${cartText}</td>
+                <td class="p-3 text-center text-sm text-gray-700">${h.sale || '-'}</td>
+                <td class="p-3 text-center align-middle space-y-1">
+                    <button onclick="viewQuotationDetail(${h.originalIndex})" class="w-full bg-green-600 text-white px-2 py-1 rounded text-xs font-bold hover:bg-green-700 shadow-sm flex items-center justify-center gap-1">📄 ดูใบเสนอราคา</button>
+                    <button onclick="loadHistory(${h.originalIndex})" class="w-full bg-indigo-100 text-indigo-700 px-2 py-1 rounded text-xs font-bold hover:bg-indigo-200">โหลดฟอร์ม</button>
+                    ${delBtn}
+                </td>
+            </tr>`;
+    }).join('');
+    document.getElementById('historyTableBody').innerHTML = html;
+}
+
+function filterServerHistory() { 
+    renderHistoryTable(document.getElementById('historySearchInput').value); 
 }
 
 function deleteHistory(rowId) {
@@ -1677,303 +1853,146 @@ function deleteHistory(rowId) {
     })
     .then(res => res.json())
     .then(data => {
-        if(data.status === 'success') {
-            globalServerHistory = globalServerHistory.filter(h => String(h.rowId) !== String(rowId) && String(h.uniqueId) !== String(rowId));
-            renderHistoryTable(document.getElementById('historySearchInput').value);
-        } else {
-            alert('ไม่สามารถลบข้อมูลได้');
-        }
+        if(data.status === 'success') fetchServerHistory(true);
+        else alert('ไม่สามารถลบข้อมูลได้');
     });
 }
 
-/**
- * แก้ไขฟังก์ชัน viewHistory() ให้สามารถค้นหาข้อมูลจาก uniqueId หรือ index ได้อย่างแม่นยำ
- * พร้อมทั้งแจกแจงรายการตารางสินค้าและรายละเอียดได้อย่างสมบูรณ์
- */
-function viewHistory(identifier) {
-    let idStr = String(identifier);
-    let record = globalServerHistory.find(h => String(h.uniqueId) === idStr || String(h.rowId) === idStr || String(h.originalIndex) === idStr);
-    if (!record) {
-        alert("ไม่พบข้อมูลรายการที่เลือก");
-        return;
-    }
-    
-    let pNames = (record.productNames || '').split('\n').filter(s => s.trim() !== '');
-    let pQtys = (record.productQtys || '').split('\n');
-    let pPrices = (record.productNetPrices || '').split('\n');
-    let pTotals = (record.productUnitPlusFreights || '').split('\n');
-    let isAdmin = currentUser && currentUser.role === 'Admin';
-    
-    let tableRows = '';
-    for(let i=0; i<pNames.length; i++) {
-        let name = pNames[i] || '-';
-        let qty = pQtys[i] || '-';
-        let price = pPrices[i] || '-';
-        let total = pTotals[i] || '-';
-        
-        let priceCell = isAdmin 
-            ? `<td class="py-2 px-3 text-right text-indigo-600 font-medium">${price}</td>`
-            : '';
+// ดูรายละเอียดใบเสนอราคาตามสิทธิ์
+function viewQuotationDetail(index) {
+    let record = globalServerHistory.find(h => h.originalIndex === index);
+    if (!record) return;
 
-        tableRows += `<tr class="border-b hover:bg-gray-50">
-            <td class="py-2 px-3 text-gray-800">${name}</td>
-            <td class="py-2 px-3 text-right text-gray-700 font-medium">${qty}</td>
-            ${priceCell}
-            <td class="py-2 px-3 text-right text-green-600 font-bold">${total}</td>
+    const isAdmin = currentUser && currentUser.role === 'Admin';
+    let prodNames = (record.productNames || '').split('\n');
+    let prodQtys = (record.productQtys || '').split('\n');
+    let prodPrices = (record.productNetPrices || '').split('\n');
+    let prodPlusFreights = (record.productUnitPlusFreights || '').split('\n');
+
+    let prodRowsHtml = '';
+    for (let i = 0; i < prodNames.length; i++) {
+        if (!prodNames[i].trim()) continue;
+        let pName = prodNames[i] || '-';
+        let pQty = prodQtys[i] || '-';
+        let pBase = prodPrices[i] || '-';
+        let pPlusF = prodPlusFreights[i] || '-';
+
+        prodRowsHtml += `<tr class="border-b">
+            <td class="p-2.5 font-medium text-gray-800">${pName}</td>
+            <td class="p-2.5 text-right font-bold text-blue-700">${pQty}</td>
+            <td class="p-2.5 text-right font-semibold text-indigo-700">${pBase}</td>
+            <td class="p-2.5 text-right font-bold text-green-700 bg-green-50/50">${pPlusF}</td>
         </tr>`;
     }
-    
-    let adminPriceHeader = isAdmin ? '<th class="p-3 text-right">ราคา/หน่วย (สุทธิ)</th>' : '';
-    let cartHtml = tableRows ? `
-        <div class="overflow-x-auto border border-gray-200 rounded-lg">
-            <table class="w-full text-sm text-left">
-                <thead class="bg-blue-100 text-blue-800 border-b border-blue-200">
-                    <tr>
-                        <th class="p-3">รายการสินค้า</th>
-                        <th class="p-3 text-right">จำนวน</th>
-                        ${adminPriceHeader}
-                        <th class="p-3 text-right">ราคา/หน่วย + ค่าขนส่ง</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-100 bg-white">${tableRows}</tbody>
-            </table>
-        </div>` : '<div class="text-center text-gray-500 py-4">ไม่มีข้อมูลตารางสินค้า</div>';
-        
-    let truckPlanBlock = record.truckPlan ? `
-        <div class="bg-gray-50 p-4 rounded-xl border border-gray-200 mt-4">
-            <h4 class="font-bold text-gray-700 text-sm mb-2">🚛 แผนการจัดเที่ยวรถ:</h4>
-            <pre class="text-xs text-gray-600 whitespace-pre-wrap font-sans">${record.truckPlan}</pre>
-        </div>` : '';
 
-    let html = `<div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-blue-50 p-5 rounded-xl mb-6 border border-blue-100">
-            <div><span class="text-gray-500 block text-xs mb-1">วันที่ทำรายการ</span><strong class="text-blue-800">${record.timestamp || '-'}</strong></div>
-            <div><span class="text-gray-500 block text-xs mb-1">ยอดเงินสุทธิที่ต้องชำระ</span><strong class="text-green-600 text-xl font-bold">${record.grandTotal || '-'}</strong></div>
-            <div><span class="text-gray-500 block text-xs mb-1">หน่วยงาน / โครงการ</span><strong class="text-gray-800">${record.project || '-'}</strong></div>
-            <div><span class="text-gray-500 block text-xs mb-1">กลุ่มลูกค้า / บริษัท</span><strong class="text-gray-800">${record.customerGroup || '-'} / ${record.companyName || '-'}</strong></div>
-            <div><span class="text-gray-500 block text-xs mb-1">ผู้บันทึกรายการ / ตัวแทนจำหน่าย</span><strong class="text-gray-800">${record.dealer || record.sale || '-'}</strong></div>
-            <div><span class="text-gray-500 block text-xs mb-1">พื้นที่จัดส่ง</span><strong class="text-gray-800">${record.district||'-'} / ${record.province||'-'} (ภาค${record.region||'-'})</strong></div>
-            <div><span class="text-gray-500 block text-xs mb-1">โรงงานต้นทาง / จัดส่ง</span><strong class="text-gray-800">${record.factory||'-'} / ${record.delivery||'-'}</strong></div>
-            <div><span class="text-gray-500 block text-xs mb-1">ประเภทรถ</span><strong class="text-gray-800">${record.truckType||'-'}</strong></div>
-        </div>
-        <h3 class="font-bold text-gray-800 border-l-4 border-indigo-500 pl-2 mb-3">📦 สรุปรายการสินค้า</h3>
-        <div class="mb-4">${cartHtml}</div>
-        ${truckPlanBlock}`;
-        
-    document.getElementById('viewHistoryContent').innerHTML = html;
-    document.getElementById('viewHistoryModal').classList.remove('hidden');
-    document.getElementById('viewHistoryModal').classList.add('flex');
-}
-
-function closeViewHistory() {
-    document.getElementById('viewHistoryModal').classList.add('hidden');
-    document.getElementById('viewHistoryModal').classList.remove('flex');
-}
-
-function loadHistory(identifier) {
-    let idStr = String(identifier);
-    let record = globalServerHistory.find(h => String(h.uniqueId) === idStr || String(h.rowId) === idStr || String(h.originalIndex) === idStr);
-    if (!record) {
-        alert("ไม่พบข้อมูลรายการที่ต้องการโหลด");
-        return;
+    // แผนจัดเที่ยวรถ (User ไม่เห็นราคาค่าขนส่ง)
+    let planText = record.truckPlan || 'ไม่มีข้อมูลแผนจัดเที่ยวรถ';
+    if (!isAdmin) {
+        planText = planText.replace(/\(ค่าขนส่ง:.*?\)/g, '');
     }
-    startNewCalculation(false);
+    let planHtml = planText.split('\n').map(line => `<div class="p-2 bg-gray-50 border rounded-lg text-xs font-medium text-gray-700">${line}</div>`).join('');
+
+    let costSection = `
+        <div class="bg-gray-50 p-4 rounded-xl border border-gray-200 text-xs space-y-2">
+            ${isAdmin ? `<div class="flex justify-between text-gray-600"><span>มูลค่าสินค้าสุทธิ:</span> <span class="font-bold text-gray-800">${record.productNet || '-'} บาท</span></div>` : ''}
+            ${isAdmin ? `<div class="flex justify-between text-gray-600"><span>ค่าขนส่งรวม:</span> <span class="font-bold text-orange-600">${record.totalFreight || '-'} บาท</span></div>` : ''}
+            <div class="flex justify-between text-gray-600 border-t pt-2"><span>รวมก่อน VAT:</span> <span class="font-bold text-gray-800">${record.productNet && record.totalFreight ? (parseFloat(String(record.productNet).replace(/,/g,'')) + parseFloat(String(record.totalFreight).replace(/,/g,''))).toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-'} บาท</span></div>
+            <div class="flex justify-between text-gray-600 border-b pb-2"><span>VAT 7%:</span> <span class="font-bold text-gray-800">${record.vat || '-'} บาท</span></div>
+            <div class="flex justify-between text-sm font-bold text-blue-800 pt-1"><span>ยอดเงินที่ต้องชำระทั้งสิ้น:</span> <span>${record.grandTotal || '-'}</span></div>
+        </div>
+    `;
+
+    let html = `
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-blue-50/50 p-4 rounded-xl border border-blue-200">
+            <div><span class="text-xs text-gray-500 font-bold">หน่วยงาน / โครงการ:</span> <div class="font-bold text-blue-900">${record.project || '-'}</div></div>
+            <div><span class="text-xs text-gray-500 font-bold">ชื่อบริษัท ของกลุ่มลูกค้า:</span> <div class="font-bold text-gray-800">${record.companyName || '-'} (${record.customerGroup || '-'})</div></div>
+            <div><span class="text-xs text-gray-500 font-bold">พื้นที่จัดส่ง:</span> <div class="text-gray-700 font-medium">อ.${record.district || '-'} จ.${record.province || '-'} (ภาค${record.region || 'กลาง'})</div></div>
+            <div><span class="text-xs text-gray-500 font-bold">ประเภทรถจัดบรรทุก / การจัดส่ง:</span> <div class="text-gray-700 font-medium">${record.truckType || '-'} (${record.delivery || '-'})</div></div>
+        </div>
+
+        <div>
+            <h4 class="font-bold text-gray-800 mb-2 border-l-4 border-blue-600 pl-2">รายการสินค้าที่สั่งซื้อ</h4>
+            <div class="border rounded-xl overflow-hidden">
+                <table class="w-full text-xs text-left">
+                    <thead class="bg-gray-100 text-gray-600">
+                        <tr>
+                            <th class="p-2.5">รายการสินค้า</th>
+                            <th class="p-2.5 text-right">จำนวน</th>
+                            <th class="p-2.5 text-right">ราคาฐาน/หน่วย (บ.)</th>
+                            <th class="p-2.5 text-right">ราคา+ค่าขนส่ง (บ.)</th>
+                        </tr>
+                    </thead>
+                    <tbody>${prodRowsHtml}</tbody>
+                </table>
+            </div>
+        </div>
+
+        <div>
+            <h4 class="font-bold text-gray-800 mb-2 border-l-4 border-indigo-600 pl-2">แผนการจัดเที่ยวรถ</h4>
+            <div class="space-y-1.5">${planHtml}</div>
+        </div>
+
+        <div>
+            <h4 class="font-bold text-gray-800 mb-2 border-l-4 border-green-600 pl-2">สรุปค่าใช้จ่าย</h4>
+            ${costSection}
+        </div>
+    `;
+
+    document.getElementById('quotationModalBody').innerHTML = html;
+    const qModal = document.getElementById('quotationDetailModal');
+    qModal.classList.remove('hidden');
+    qModal.classList.add('flex');
+}
+
+function closeQuotationModal() {
+    const qModal = document.getElementById('quotationDetailModal');
+    qModal.classList.add('hidden');
+    qModal.classList.remove('flex');
+}
+
+// ปรับปรุงฟังก์ชัน loadHistory ให้ทำงานเสถียรและปลอดภัย
+function loadHistory(index) {
+    let record = globalServerHistory.find(h => h.originalIndex === index);
+    if (!record) return;
+    clearAll();
+    
     document.getElementById('projectName').value = record.project || '';
     document.getElementById('customerGroup').value = record.customerGroup || '';
     document.getElementById('companyName').value = record.companyName || '';
     document.getElementById('province').value = record.province || '';
-    onProvinceInput();
     document.getElementById('district').value = record.district || '';
-    onDistrictInput();
-    const selectIfMatch = (id, val) => {
-        if(val) {
-            Array.from(document.getElementById(id).options).forEach(opt => {
-                if(opt.text === val || opt.value === val) opt.selected = true;
-            });
+    onProvinceChanged();
+
+    if(record.factory) document.getElementById('factory').value = record.factory;
+    if(record.delivery) document.getElementById('deliveryType').value = record.delivery;
+    if(record.payment) document.getElementById('paymentCondition').value = record.payment;
+    if(record.freightMode) document.getElementById('freightAllocationMode').value = record.freightMode;
+
+    if (record.rawCart && typeof record.rawCart === 'string' && record.rawCart.trim() !== '') {
+        try { 
+            cart = JSON.parse(record.rawCart) || []; 
+        } catch(e) { 
+            cart = []; 
         }
-    };
-    selectIfMatch('factory', record.factory);
-    selectIfMatch('paymentCondition', record.payment);
-    selectIfMatch('deliveryType', record.delivery);
-    let fMode = record.freightMode && record.freightMode.trim() !== '' ? record.freightMode : 'all';
-    selectIfMatch('freightAllocationMode', fMode);
-    if (record.rawCart && record.rawCart.trim() !== '') {
-        try { cart = JSON.parse(record.rawCart) || []; } catch(e) { cart = []; }
-    } else {
-        cart = [];
-        let names = (record.productNames || '').split('\n');
-        let qtys = (record.productQtys || '').split('\n');
-        for(let i=0; i<names.length; i++) {
-            let n = names[i].trim().replace(/\s\(\+แถม\s\d+\)$/, '');
-            let p = productData.find(x => x.name === n);
-            if (p) {
-                let q = parseFloat((qtys[i] || '').replace(/[^\d.]/g, '')) || 0;
-                cart.push({ id: p.id, qty: q });
-            }
-        }
+    } else if (Array.isArray(record.rawCart)) {
+        cart = record.rawCart;
     }
+
     renderCart();
     closeHistory();
-    calculateFreight();
+    calculateFreight(false);
 }
 
-function saveToGoogleSheets() {
-    if (!GOOGLE_SCRIPT_URL) return;
-    const btn = document.getElementById('btnSaveDB');
-    const orig = btn.innerHTML;
-    btn.innerHTML = '⏳ <span>กำลังบันทึก...</span>';
-    btn.disabled = true;
-    let pNames = window.currentResultItems.map(i => i.name + (i.freeQty > 0 ? `(+แถม ${i.freeQty})` : '')).join('\n');
-    let pQtys = window.currentResultItems.map(i => `${i.qty} ${i.unit}`).join('\n');
-    let pPrices = window.currentResultItems.map(i => i.netUnitPrice.toFixed(2)).join('\n');
-    let pFreights = window.currentResultItems.map(i => i.freightPerUnitVal.toFixed(2)).join('\n');
-    let pTotals = window.currentResultItems.map(i => i.unitPlusFreight.toFixed(2)).join('\n');
-    const payload = {
-        action: 'save',
-        timestamp: new Date().toLocaleString('th-TH'),
-        username: currentUser ? currentUser.username : '-',
-        sale: document.getElementById('saleName').value || '-',
-        dealer: currentUser ? currentUser.fullName : '-',
-        customerGroup: document.getElementById('customerGroup').value || '-',
-        companyName: document.getElementById('companyName').value || '-',
-        project: document.getElementById('projectName').value || '-',
-        region: document.getElementById('detectedRegion').value || 'กลาง',
-        district: document.getElementById('district').value || '-',
-        province: document.getElementById('province').value || '-',
-        factory: document.getElementById('outFactory').innerText,
-        truckType: document.getElementById('outTotalTrucks').innerText + ' คัน ' + document.getElementById('outTruckSummary').innerText,
-        delivery: document.getElementById('outDeliveryType').innerText,
-        payment: document.getElementById('outTerm').innerText,
-        fuelPrice: document.getElementById('outFuel').innerText,
-        productNames: pNames,
-        productQtys: pQtys,
-        productNetPrices: pPrices,
-        productFreightPerUnits: pFreights,
-        productUnitPlusFreights: pTotals,
-        freightCostPerTrip: document.getElementById('freightCost_trailer').value || '0',
-        totalTrucks: document.getElementById('outTotalTrucks').innerText,
-        truckPlan: window.currentTruckPlanText,
-        productNet: document.getElementById('sumProductNet').innerText,
-        totalFreight: document.getElementById('sumFreight').innerText,
-        vat: document.getElementById('sumVat').innerText,
-        grandTotal: document.getElementById('finalPayment').innerText,
-        rawCart: JSON.stringify(cart),
-        freightMode: document.getElementById('freightAllocationMode').value
-    };
-    fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload)
-    })
-    .then(res => res.json())
-    .then(data => {
-        if(data.status === 'success') {
-            btn.innerHTML = '✅ <span>บันทึกสำเร็จ</span>';
-            btn.classList.replace('bg-blue-600', 'bg-green-600');
-            setTimeout(() => {
-                btn.innerHTML = orig;
-                btn.disabled = false;
-                btn.classList.replace('bg-green-600', 'bg-blue-600');
-            }, 3000);
-        } else throw new Error();
-    })
-    .catch(() => {
-        btn.innerHTML = orig;
-        btn.disabled = false;
-    });
-}
-
-function startNewCalculation(confirmPrompt = true) {
-    if (confirmPrompt && cart.length > 0) {
-        if (!confirm("คุณต้องการล้างข้อมูลเพื่อเริ่มต้นการคำนวณใหม่ใช่หรือไม่?")) {
-            return;
-        }
-    }
-    document.getElementById('projectName').value = '';
-    document.getElementById('customerGroup').value = '';
-    document.getElementById('companyName').value = '';
-    document.getElementById('province').value = '';
-    document.getElementById('district').value = '';
-    document.getElementById('detectedRegion').value = 'กำลังตรวจหา...';
-    document.getElementById('creditNoteInput').value = '0';
-    document.getElementById('freightAllocationMode').value = 'all';
-    document.getElementById('categorySelector').value = 'all';
-    
-    if (currentUser) {
-        applyUserPermissions(currentUser);
-    }
-    
-    cart = [];
-    window.currentResultItems = [];
-    window.currentTruckPlanText = '';
-    window.currentGrandTotal = 0;
-    
-    renderCart();
-    updateProductDropdown();
-    
-    document.getElementById('resultArea').classList.add('hidden');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-function initSaleDealerAutocomplete() {
+function initProjectAutocomplete() {
     let projects = new Set();
     globalServerHistory.forEach(h => {
-        if (h.project && h.project !== '-') projects.add(h.project.trim());
+        if (h.project && h.project.trim() !== '') projects.add(h.project.trim());
     });
-    const pList = document.getElementById('projectList');
-    if(pList) { pList.innerHTML = ''; projects.forEach(p => pList.appendChild(new Option(p, p))); }
-}
-
-function toggleTruckPlan() {
-    window.isTruckPlanVisible = !window.isTruckPlanVisible;
-    document.getElementById('outTruckDetails').style.display = window.isTruckPlanVisible ? '' : 'none';
-    document.getElementById('toggleTruckPlanBtn').innerHTML = window.isTruckPlanVisible ? '👁️ ซ่อนแผนการจัดส่ง' : '👁️ แสดงแผนการจัดส่ง';
-}
-
-function toggleBankDisplay() {
-    isBankVisible = !isBankVisible;
-    document.getElementById('bankAccountDiv').classList.toggle('hidden', !isBankVisible);
-    document.getElementById('showBankBtn').classList.toggle('hidden', isBankVisible);
-}
-
-function preExportProcess() {
-    document.getElementById('actionButtons').classList.add('hidden');
-    document.querySelectorAll('.editable-hint').forEach(el => el.classList.add('hidden'));
-    document.querySelectorAll('.qty-input, .price-input, .freight-input').forEach(input => {
-        const span = document.createElement('span');
-        span.className = 'export-temp-span font-bold text-gray-800';
-        span.innerText = parseFloat(input.value).toLocaleString('th-TH');
-        input.parentElement.appendChild(span);
-        input.style.display = 'none';
-    });
-}
-
-function postExportProcess() {
-    document.getElementById('actionButtons').classList.remove('hidden');
-    document.querySelectorAll('.editable-hint').forEach(el => el.classList.remove('hidden'));
-    document.querySelectorAll('.export-temp-span').forEach(el => el.remove());
-    document.querySelectorAll('.qty-input, .price-input, .freight-input').forEach(input => input.style.display = '');
-}
-
-function saveImage() {
-    preExportProcess();
-    html2canvas(document.getElementById('resultArea'), { scale: 2, backgroundColor: '#ffffff' }).then(canvas => {
-        const link = document.createElement('a');
-        link.download = `ใบเสนอราคา_${document.getElementById('projectName').value}_${Date.now()}.png`;
-        link.href = canvas.toDataURL("image/png");
-        link.click();
-        postExportProcess();
-    }).catch(postExportProcess);
-}
-
-function savePDF() {
-    preExportProcess();
-    html2canvas(document.getElementById('resultArea'), { scale: 2, backgroundColor: '#ffffff' }).then(canvas => {
-        const imgData = canvas.toDataURL("image/jpeg", 1.0);
-        const pdf = new window.jspdf.jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-        pdf.addImage(imgData, 'JPEG', 0, 0, 210, (canvas.height * 210) / canvas.width);
-        pdf.save(`ใบเสนอราคา_${document.getElementById('projectName').value}_${Date.now()}.pdf`);
-        postExportProcess();
-    }).catch(postExportProcess);
+    const projectList = document.getElementById('projectList');
+    if(projectList) { 
+        projectList.innerHTML = ''; 
+        projects.forEach(p => projectList.appendChild(new Option(p, p))); 
+    }
 }
 
 window.onload = () => {
