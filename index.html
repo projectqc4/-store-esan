@@ -671,12 +671,11 @@ function handleLogin(e) {
     btn.disabled = true;
     btn.innerText = 'กำลังเข้าสู่ระบบ...';
 
-    // ปรับปรุงการเชื่อมต่อบน Web Hosting ให้รองรับ CORS และ Follow Redirect
+    // ปรับรูปแบบ POST request ไม่ใส่ custom headers เพื่อป้องกัน Preflight CORS Block บนเว็บจริง
     fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         mode: 'cors',
         redirect: 'follow',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ action: 'login', username: u, password: p })
     })
     .then(r => r.json())
@@ -757,7 +756,6 @@ function updateConnectionStatus(state) {
         isDatabaseReady = true;
         badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300';
         badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500"></span> ฐานข้อมูลเชื่อมต่อสมบูรณ์ (พร้อมคำนวณ)';
-        badge.onclick = null;
         if (btnCalc) {
             btnCalc.classList.remove('opacity-60', 'cursor-not-allowed');
             btnCalc.removeAttribute('title');
@@ -812,7 +810,8 @@ function setupRestrictedDropdowns() {
 }
 
 /**
- * ดึงข้อมูลตั้งต้นจาก Google Apps Script รองรับ Web Hosting ทุกโดเมน
+ * ปรับปรุงการเชื่อมต่อฐานข้อมูลส่วนกลางให้รองรับทั้ง Local และบน Web Server (CORS & Proxy Safe)
+ * พร้อมระบบ Fallback สองช่องทาง (GET -> POST) และ Cache Recovery ทันที
  */
 function fetchInitialData(isManualRefresh = false) {
     updateConnectionStatus('connecting');
@@ -824,18 +823,18 @@ function fetchInitialData(isManualRefresh = false) {
         } catch(e) {}
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 18000);
+    const timestamp = new Date().getTime();
+    const fetchUrl = `${GOOGLE_SCRIPT_URL}?action=getInitialData&_t=${timestamp}`;
 
-    fetch(GOOGLE_SCRIPT_URL + '?_t=' + new Date().getTime(), {
+    // ส่งคำขอแบบ GET ด้วยโหมด cors และ follow redirect เต็มรูปแบบ
+    fetch(fetchUrl, {
         method: 'GET',
         mode: 'cors',
         redirect: 'follow',
-        signal: controller.signal
+        cache: 'no-cache'
     })
     .then(r => {
-        clearTimeout(timeoutId);
-        if (!r.ok) throw new Error('Network response was not ok');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
     })
     .then(res => {
@@ -848,23 +847,31 @@ function fetchInitialData(isManualRefresh = false) {
         }
     })
     .catch(err => {
-        clearTimeout(timeoutId);
-        if (!cachedData) {
-            updateConnectionStatus('error');
-            // ทำการ Retry ให้อัตโนมัติอีก 1 ครั้ง
-            setTimeout(() => {
-                fetch(GOOGLE_SCRIPT_URL + '?_t=' + new Date().getTime(), { method: 'GET', mode: 'cors', redirect: 'follow' })
-                .then(r => r.json())
-                .then(res => {
-                    localStorage.setItem('v3_system_cache', JSON.stringify(res));
-                    applyData(res);
-                    updateConnectionStatus('ready');
-                })
-                .catch(() => updateConnectionStatus('error'));
-            }, 2000);
-        } else {
+        // หาก GET ล้มเหลวจากข้อจำกัดของ Web Server ให้ Fallback ดึงด้วย POST ทันที
+        fetch(GOOGLE_SCRIPT_URL, {
+            method: 'POST',
+            mode: 'cors',
+            redirect: 'follow',
+            body: JSON.stringify({ action: 'getInitialData' })
+        })
+        .then(r => r.json())
+        .then(res => {
+            localStorage.setItem('v3_system_cache', JSON.stringify(res));
+            applyData(res);
             updateConnectionStatus('ready');
-        }
+            if (isManualRefresh) {
+                renderHistoryTable(globalHistory);
+                alert('อัปเดตข้อมูลจากส่วนกลางเรียบร้อยแล้ว');
+            }
+        })
+        .catch(finalErr => {
+            if (!cachedData) {
+                updateConnectionStatus('error');
+                if (isManualRefresh) alert('ไม่สามารถเชื่อมต่อฐานข้อมูลส่วนกลางได้ในขณะนี้ กรุณาตรวจสอบอินเทอร์เน็ตหรือรีเฟรช');
+            } else {
+                updateConnectionStatus('ready');
+            }
+        });
     });
 }
 
@@ -1815,7 +1822,6 @@ function saveToGoogleSheets(isManual = false) {
         method: 'POST',
         mode: 'cors',
         redirect: 'follow',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payload)
     })
     .then(r => r.json())
@@ -1886,39 +1892,24 @@ function getFilteredHistoryByUser(list) {
     return list.filter(h => (h.username && h.username === currentUser.username) || (h.sale && h.sale === currentUser.fullName));
 }
 
-// ฟังก์ชันดึงค่าฟิลด์แบบ Case-Insensitive เพื่อรองรับข้อมูลจาก User และ Admin ทุกเวอร์ชัน
-function getHistField(item, fieldNames, defaultValue = '-') {
-    if (!item) return defaultValue;
-    for (let f of fieldNames) {
-        if (item[f] !== undefined && item[f] !== null && String(item[f]).trim() !== '') {
-            return item[f];
-        }
-    }
-    return defaultValue;
-}
-
-// ตัวแปรเก็บรายการประวัติที่กำลังแสดงในตารางปัจจุบัน
-window.currentDisplayedHistory = [];
-
 function renderHistoryTable(list) {
     const tbody = document.getElementById('historyTableBody');
     const userAccessibleList = getFilteredHistoryByUser(list);
-    window.currentDisplayedHistory = userAccessibleList;
 
     if (userAccessibleList.length === 0) {
         tbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-gray-400">ไม่พบประวัติการคำนวณที่ตรงกับสิทธิ์ของคุณ</td></tr>';
         return;
     }
     let html = '';
-    userAccessibleList.forEach((h, index) => {
-        const projName = getHistField(h, ['project', 'Project'], '-');
-        const cGroup = getHistField(h, ['customerGroup', 'CustomerGroup'], '-');
-        const cComp = getHistField(h, ['customerCompany', 'CustomerCompany'], '-');
-        const sName = getHistField(h, ['sale', 'Sale', 'username'], '-');
-        const gTotal = getHistField(h, ['grandTotal', 'GrandTotal'], '-');
-        const tStamp = getHistField(h, ['timestamp', 'Timestamp'], '-');
+    userAccessibleList.forEach((h) => {
+        const rowId = h._histId;
+        const projName = h.project || h.Project || '-';
+        const cGroup = h.customerGroup || h.CustomerGroup || '-';
+        const cComp = h.customerCompany || h.CustomerCompany || '-';
+        const sName = h.sale || h.Sale || h.username || '-';
+        const gTotal = h.grandTotal || h.GrandTotal || '-';
+        const tStamp = h.timestamp || h.Timestamp || '-';
 
-        // เรียกดูและแก้ไขโดยส่ง index ตรง ๆ ทำให้ไม่มีปัญหาเรื่อง Quote ใน Attribute
         html += `<tr class="hover:bg-gray-50 border-b">
             <td class="p-2 whitespace-nowrap">${tStamp}</td>
             <td class="p-2 font-bold text-blue-900">${projName}</td>
@@ -1926,9 +1917,9 @@ function renderHistoryTable(list) {
             <td class="p-2 whitespace-nowrap">${sName}</td>
             <td class="p-2 text-right font-bold text-green-800 whitespace-nowrap">${gTotal}</td>
             <td class="p-2 text-center whitespace-nowrap space-x-1">
-                <button onclick="viewHistoryDetailByIndex(${index})" class="bg-blue-50 text-blue-600 hover:bg-blue-100 px-2 py-1 rounded font-semibold text-[11px]">👁️ ดู</button>
-                <button onclick="loadHistoryToEditByIndex(${index})" class="bg-indigo-50 text-indigo-600 hover:bg-indigo-100 px-2 py-1 rounded font-semibold text-[11px]">✏️ แก้ไข</button>
-                <button onclick="deleteHistoryItemByIndex(${index})" class="bg-red-50 text-red-600 hover:bg-red-100 px-2 py-1 rounded font-semibold text-[11px]">🗑️ ลบ</button>
+                <button onclick="viewHistoryDetail('${rowId}')" class="bg-blue-50 text-blue-600 hover:bg-blue-100 px-2 py-1 rounded font-semibold text-[11px]">👁️ ดู</button>
+                <button onclick="loadHistoryToEdit('${rowId}')" class="bg-indigo-50 text-indigo-600 hover:bg-indigo-100 px-2 py-1 rounded font-semibold text-[11px]">✏️ แก้ไข</button>
+                <button onclick="deleteHistoryItem('${rowId}')" class="bg-red-50 text-red-600 hover:bg-red-100 px-2 py-1 rounded font-semibold text-[11px]">🗑️ ลบ</button>
             </td>
         </tr>`;
     });
@@ -1939,184 +1930,206 @@ function filterHistory() {
     const q = document.getElementById('historySearchInput').value.toLowerCase();
     const userAccessibleList = getFilteredHistoryByUser(globalHistory);
     const filtered = userAccessibleList.filter(h => 
-        (getHistField(h, ['project', 'Project'], '').toLowerCase().includes(q)) || 
-        (getHistField(h, ['sale', 'Sale', 'username'], '').toLowerCase().includes(q)) ||
-        (getHistField(h, ['customerCompany', 'CustomerCompany'], '').toLowerCase().includes(q))
+        ((h.project || h.Project || '').toLowerCase().includes(q)) || 
+        ((h.sale || h.Sale || h.username || '').toLowerCase().includes(q)) ||
+        ((h.customerCompany || h.CustomerCompany || '').toLowerCase().includes(q))
     );
     renderHistoryTable(filtered);
 }
 
 /**
- * ฟังก์ชันเปิดดูใบเสนอราคาตาม Index: ปรับปรุงให้ Role Admin สามารถกดดูของ User ได้ 100% โดยไม่มีข้อผิดพลาด
+ * ปรับปรุงระบบแสดงใบเสนอราคาจากประวัติย้อนหลัง:
+ * - Role Admin ดูของ Role User ได้ครบถ้วนทุกรายการ
+ * - Role User ทุกรายการสามารถเปิดดูรายละเอียดได้แน่นอน 100% ไม่มีปัญหาเปิดไม่ขึ้น
  */
-function viewHistoryDetailByIndex(index) {
-    const item = window.currentDisplayedHistory[index];
-    if (!item) {
-        alert('ไม่พบข้อมูลรายการที่ต้องการดู');
-        return;
+function viewHistoryDetail(id) {
+    const item = globalHistory.find(h => h._histId === id) || 
+                 globalHistory.find((h, idx) => (h.id && h.id.toString() === id.toString()) || idx.toString() === id.toString() || ('hist_new_' + h.id) === id);
+    if (!item) return alert('ไม่พบข้อมูลประวัติรายการนี้');
+
+    const isAdmin = currentUser.role === 'admin';
+    let resItems = [];
+
+    // 1. ลองถอดรหัสจาก resultItems หรือ ResultItems (JSON Object หรือ String)
+    try {
+        let parsed = item.resultItems || item.ResultItems;
+        if (parsed && typeof parsed === 'string') parsed = JSON.parse(parsed);
+        if (parsed && typeof parsed === 'string') parsed = JSON.parse(parsed);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+            resItems = parsed.map(it => ({
+                name: it.name || it.productName || it.id || 'สินค้า',
+                qty: parseFloat(it.qty) || 0,
+                unit: it.unit || 'หน่วย',
+                netUnitPrice: parseFloat(it.netUnitPrice) || 0,
+                freightPerUnit: parseFloat(it.freightPerUnit || it.freightPerUnitVal) || 0,
+                unitPlusFreight: parseFloat(it.unitPlusFreight) || ((parseFloat(it.netUnitPrice) || 0) + (parseFloat(it.freightPerUnit || it.freightPerUnitVal) || 0))
+            }));
+        }
+    } catch(e) {}
+
+    // 2. หากยังไม่มี ให้ลองแกะจาก ProductNames / productNames
+    if (resItems.length === 0) {
+        const rawNames = item.productNames || item.ProductNames;
+        if (rawNames && rawNames !== '-' && typeof rawNames === 'string') {
+            const sep = rawNames.includes('\n') ? '\n' : (rawNames.includes(' | ') ? ' | ' : ',');
+            const names = rawNames.split(sep);
+            const qtys = (item.productQtys || item.ProductQtys || '').split(sep);
+            const netPrices = (item.productNetPrices || item.ProductNetPrices || '').split(sep);
+            const freights = (item.productFreightPerUnits || item.ProductFreightPerUnits || '').split(sep);
+            const unitPlus = (item.productUnitPlusFreights || item.ProductUnitPlusFreights || '').split(sep);
+
+            resItems = names.map((nm, i) => {
+                let cleanNm = nm.replace(/\s\(\+แถม\s\d+\)$/, '').trim();
+                let qStr = (qtys[i] || '0').split(' ')[0].replace(/,/g, '');
+                let uStr = (qtys[i] || '0').split(' ')[1] || 'หน่วย';
+                let np = parseFloat((netPrices[i] || '0').replace(/,/g, '')) || 0;
+                let fr = parseFloat((freights[i] || '0').replace(/,/g, '')) || 0;
+                let up = parseFloat((unitPlus[i] || '0').replace(/,/g, '')) || (np + fr);
+                return {
+                    name: cleanNm,
+                    qty: parseFloat(qStr) || 0,
+                    unit: uStr,
+                    netUnitPrice: np,
+                    freightPerUnit: fr,
+                    unitPlusFreight: up
+                };
+            }).filter(it => it.name && it.name !== '-');
+        }
     }
 
-    try {
-        const isAdmin = currentUser.role === 'admin';
-        let resItems = [];
-
-        // 1. ถอดรหัสจาก resultItems (ถ้ามี)
-        const rawResultItems = getHistField(item, ['resultItems', 'ResultItems'], null);
-        if (rawResultItems) {
+    // 3. หากยังไม่มี ให้ถอดรหัสจาก rawCart / RawCart / cartItems
+    if (resItems.length === 0) {
+        let rc = item.rawCart || item.RawCart || item.cartItems || item.CartItems;
+        if (rc && rc !== '-') {
             try {
-                let parsed = rawResultItems;
-                if (typeof parsed === 'string') parsed = JSON.parse(parsed);
-                if (typeof parsed === 'string') parsed = JSON.parse(parsed);
-                if (Array.isArray(parsed) && parsed.length > 0) resItems = parsed;
+                let parsedCart = rc;
+                if (typeof parsedCart === 'string') parsedCart = JSON.parse(parsedCart);
+                if (typeof parsedCart === 'string') parsedCart = JSON.parse(parsedCart);
+                if (Array.isArray(parsedCart) && parsedCart.length > 0) {
+                    resItems = parsedCart.map(c => {
+                        const p = productData.find(x => x.id === c.id) || { name: c.id, unit: 'หน่วย', cat: 'ทั่วไป', vol: 0.009 };
+                        let base = roundTax(getBasePrice(p));
+                        let customNp = parseFloat(c.customPrice || c.netUnitPrice) || base;
+                        let customFr = parseFloat(c.freightPerUnitVal || c.freightPerUnit) || 0;
+                        return {
+                            name: p.name,
+                            qty: parseFloat(c.qty) || 0,
+                            unit: p.unit || 'หน่วย',
+                            netUnitPrice: customNp,
+                            freightPerUnit: customFr,
+                            unitPlusFreight: customNp + customFr
+                        };
+                    });
+                }
             } catch(e) {}
         }
-
-        // 2. ถ้าไม่มี ให้ถอดรหัสจาก ProductNames / productNames
-        if (resItems.length === 0) {
-            const rawNames = getHistField(item, ['productNames', 'ProductNames'], '');
-            if (rawNames && rawNames !== '-') {
-                const sep = rawNames.includes('\n') ? '\n' : (rawNames.includes(' | ') ? ' | ' : ',');
-                const names = rawNames.split(sep);
-                const rawQtys = getHistField(item, ['productQtys', 'ProductQtys'], '');
-                const rawNetPrices = getHistField(item, ['productNetPrices', 'ProductNetPrices'], '');
-                const rawFreights = getHistField(item, ['productFreightPerUnits', 'ProductFreightPerUnits'], '');
-                const rawUnitPlus = getHistField(item, ['productUnitPlusFreights', 'ProductUnitPlusFreights'], '');
-
-                const qtys = rawQtys ? rawQtys.split(sep) : [];
-                const netPrices = rawNetPrices ? rawNetPrices.split(sep) : [];
-                const freights = rawFreights ? rawFreights.split(sep) : [];
-                const unitPlus = rawUnitPlus ? rawUnitPlus.split(sep) : [];
-
-                resItems = names.map((nm, i) => {
-                    let cleanNm = String(nm).replace(/\s\(\+แถม\s\d+\)$/, '').trim();
-                    let qStr = (qtys[i] || '0').split(' ')[0].replace(/,/g, '');
-                    let uStr = (qtys[i] || '0').split(' ')[1] || 'หน่วย';
-                    let np = parseFloat(String(netPrices[i] || '0').replace(/,/g, '')) || 0;
-                    let fr = parseFloat(String(freights[i] || '0').replace(/,/g, '')) || 0;
-                    let up = parseFloat(String(unitPlus[i] || '0').replace(/,/g, '')) || (np + fr);
-                    return {
-                        name: cleanNm,
-                        qty: parseFloat(qStr) || 0,
-                        unit: uStr,
-                        netUnitPrice: np,
-                        freightPerUnit: fr,
-                        unitPlusFreight: up
-                    };
-                }).filter(it => it.name && it.name !== '-');
-            }
-        }
-
-        // 3. ถ้ายังไม่มี ให้ถอดรหัสจาก rawCart หรือ cartItems
-        if (resItems.length === 0) {
-            const rawCartData = getHistField(item, ['rawCart', 'RawCart', 'cartItems', 'CartItems'], null);
-            if (rawCartData && rawCartData !== '-') {
-                try {
-                    let parsedCart = rawCartData;
-                    if (typeof parsedCart === 'string') parsedCart = JSON.parse(parsedCart);
-                    if (typeof parsedCart === 'string') parsedCart = JSON.parse(parsedCart);
-                    if (Array.isArray(parsedCart) && parsedCart.length > 0) {
-                        resItems = parsedCart.map(c => {
-                            const p = productData.find(x => x.id === c.id) || { name: c.id, unit: 'หน่วย', cat: 'ทั่วไป' };
-                            let base = roundTax(getBasePrice(p));
-                            let customNp = parseFloat(c.customPrice || c.netUnitPrice) || base;
-                            let customFr = parseFloat(c.freightPerUnitVal || c.freightPerUnit) || 0;
-                            return {
-                                name: p.name,
-                                qty: parseFloat(c.qty) || 0,
-                                unit: p.unit || 'หน่วย',
-                                netUnitPrice: customNp,
-                                freightPerUnit: customFr,
-                                unitPlusFreight: customNp + customFr
-                            };
-                        });
-                    }
-                } catch(e) {}
-            }
-        }
-
-        let itemsTableHtml = '';
-        resItems.forEach(it => {
-            let netUnitPrice = parseFloat(it.netUnitPrice) || 0;
-            let qty = parseFloat(it.qty) || 0;
-            let freightPerUnit = parseFloat(it.freightPerUnit) || 0;
-            let unitPlusFreight = parseFloat(it.unitPlusFreight) || (netUnitPrice + freightPerUnit);
-            let netTotal = roundTax(qty * netUnitPrice);
-            let finalTotal = roundTax(qty * unitPlusFreight);
-
-            itemsTableHtml += `<tr class="border-b">
-                <td class="p-2 font-medium">${it.name || '-'}</td>
-                <td class="p-2 text-right font-bold">${qty.toLocaleString()} ${it.unit || ''}</td>
-                ${isAdmin ? `<td class="p-2 text-right text-indigo-700">${netUnitPrice.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>` : ''}
-                ${isAdmin ? `<td class="p-2 text-right">${netTotal.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>` : ''}
-                ${isAdmin ? `<td class="p-2 text-right text-orange-600">${freightPerUnit.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>` : ''}
-                <td class="p-2 text-right font-bold text-green-900 bg-green-50">${unitPlusFreight.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
-                <td class="p-2 text-right font-bold text-green-950 bg-green-100">${finalTotal.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
-            </tr>`;
-        });
-
-        const truckPlanText = getHistField(item, ['truckPlan', 'TruckPlan'], '-');
-
-        const contentHtml = `
-            <div class="border-b pb-3 text-center">
-                <h4 class="text-xl font-bold text-blue-900">ใบเสนอราคา (ประวัติย้อนหลัง)</h4>
-                <p class="text-xs text-gray-500">บันทึกเมื่อ: ${getHistField(item, ['timestamp', 'Timestamp'], '-')}</p>
-            </div>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-2 bg-gray-50 p-3 rounded-lg text-xs">
-                <div><span class="text-gray-500 block">โครงการ:</span><b class="text-blue-900">${getHistField(item, ['project', 'Project'], '-')}</b></div>
-                <div><span class="text-gray-500 block">ลูกค้า:</span><b>${getHistField(item, ['customerCompany', 'CustomerCompany'], '-')}</b></div>
-                <div><span class="text-gray-500 block">กลุ่มลูกค้า:</span><b>${getHistField(item, ['customerGroup', 'CustomerGroup'], '-')}</b></div>
-                <div><span class="text-gray-500 block">ผู้จัดทำ:</span><b>${getHistField(item, ['sale', 'Sale', 'username'], '-')}</b></div>
-                <div><span class="text-gray-500 block">โรงงาน:</span><b>${getHistField(item, ['factory', 'Factory'], '-')}</b></div>
-                <div><span class="text-gray-500 block">ประเภทจัดส่ง:</span><b>${getHistField(item, ['delivery', 'Delivery'], '-')}</b></div>
-                <div><span class="text-gray-500 block">ปลายทาง:</span><b>${getHistField(item, ['province', 'Province'], '-')} / ${getHistField(item, ['district', 'District'], '-')}</b></div>
-                <div><span class="text-gray-500 block">จำนวนรถ:</span><b class="text-indigo-700">${getHistField(item, ['totalTrucks', 'TotalTrucks'], '-')} คัน (${getHistField(item, ['truckType', 'TruckType'], '-')})</b></div>
-                <div><span class="text-gray-500 block">ราคาน้ำมันอ้างอิง:</span><b class="text-amber-800">${getHistField(item, ['fuelPrice', 'FuelPrice'], '-')} บ./ล.</b></div>
-            </div>
-
-            <div>
-                <h5 class="font-bold text-xs mb-1 text-gray-700">รายการสินค้า</h5>
-                <div class="border rounded-lg overflow-x-auto">
-                    <table class="w-full text-xs text-left">
-                        <thead class="bg-gray-100 text-gray-700">
-                            <tr>
-                                <th class="p-2">สินค้า</th>
-                                <th class="p-2 text-right">จำนวน</th>
-                                ${isAdmin ? '<th class="p-2 text-right">ราคา/หน่วย (บ.)</th>' : ''}
-                                ${isAdmin ? '<th class="p-2 text-right">มูลค่ารวม (บ.)</th>' : ''}
-                                ${isAdmin ? '<th class="p-2 text-right">ค่าส่ง/หน่วย (บ.)</th>' : ''}
-                                <th class="p-2 text-right bg-green-50 text-green-900 font-bold">ราคา/หน่วย+ขนส่ง</th>
-                                <th class="p-2 text-right bg-green-100 text-green-950 font-bold">ยอดเงินรวมสุทธิ (บ.)</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100">${itemsTableHtml || '<tr><td colspan="7" class="p-4 text-center text-gray-400">ไม่มีรายละเอียดสินค้าที่บันทึกไว้</td></tr>'}</tbody>
-                    </table>
-                </div>
-            </div>
-
-            ${truckPlanText && truckPlanText !== '-' ? `
-                <div>
-                    <h5 class="font-bold text-xs mb-1 text-indigo-900">แผนการจัดเที่ยวรถ</h5>
-                    <pre class="bg-gray-50 p-2.5 rounded-lg border text-[11px] font-sans text-gray-700 whitespace-pre-wrap">${truckPlanText}</pre>
-                </div>
-            ` : ''}
-
-            <div class="flex justify-end pt-2">
-                <div class="bg-gray-50 p-3 rounded-lg border w-full md:w-1/2 space-y-1.5 text-xs">
-                    ${isAdmin ? `<div class="flex justify-between text-gray-600"><span>มูลค่าสินค้าสุทธิ:</span><span>${getHistField(item, ['productNet', 'ProductNet'], '-')}</span></div>` : ''}
-                    ${isAdmin ? `<div class="flex justify-between text-gray-600"><span>ค่าขนส่งรวม:</span><span>${getHistField(item, ['totalFreight', 'TotalFreight'], '-')}</span></div>` : ''}
-                    <div class="flex justify-between font-medium text-gray-800 border-t pt-1"><span>ยอดรวมก่อน VAT:</span><span>${getHistField(item, ['beforeVat', 'BeforeVat'], '-')}</span></div>
-                    <div class="flex justify-between font-medium text-gray-800"><span>ภาษีมูลค่าเพิ่ม VAT 7%:</span><span>${getHistField(item, ['vat', 'Vat'], '-')}</span></div>
-                    <div class="flex justify-between font-bold text-sm text-green-900 border-t pt-1.5 bg-green-50 p-2 rounded"><span>ยอดเงินที่ต้องชำระสุทธิ:</span><span>${getHistField(item, ['grandTotal', 'GrandTotal'], '-')}</span></div>
-                </div>
-            </div>
-        `;
-
-        document.getElementById('historyViewModalContent').innerHTML = contentHtml;
-        document.getElementById('historyViewModal').classList.remove('hidden');
-        document.getElementById('historyViewModal').classList.add('flex');
-    } catch(err) {
-        alert('เกิดข้อผิดพลาดในการเปิดดูใบเสนอราคา กรุณาลองใหม่อีกครั้ง');
     }
+
+    // 4. กรณีพิเศษ: หากบันทึกมาเฉพาะ TruckPlan ให้จำลองรายการสินค้าจาก TruckPlan ออกมาแสดง
+    if (resItems.length === 0) {
+        const tPlan = item.truckPlan || item.TruckPlan;
+        if (tPlan && tPlan !== '-' && typeof tPlan === 'string') {
+            const lines = tPlan.split('\n');
+            lines.forEach(l => {
+                let m = l.match(/\]:\s*(.*)/);
+                if (m && m[1]) {
+                    let parts = m[1].split(',');
+                    parts.forEach(pt => {
+                        let itMatch = pt.match(/(.*?)\s*\((\d+[\d,]*)\s*(.*?)\)/);
+                        if (itMatch) {
+                            let nm = itMatch[1].trim();
+                            let q = parseFloat(itMatch[2].replace(/,/g, '')) || 0;
+                            let u = itMatch[3].trim() || 'หน่วย';
+                            let exist = resItems.find(x => x.name === nm);
+                            if (exist) exist.qty += q;
+                            else resItems.push({ name: nm, qty: q, unit: u, netUnitPrice: 0, freightPerUnit: 0, unitPlusFreight: 0 });
+                        }
+                    });
+                }
+            });
+        }
+    }
+
+    let itemsTableHtml = '';
+    resItems.forEach(it => {
+        let netUnitPrice = parseFloat(it.netUnitPrice) || 0;
+        let qty = parseFloat(it.qty) || 0;
+        let freightPerUnit = parseFloat(it.freightPerUnit) || 0;
+        let unitPlusFreight = parseFloat(it.unitPlusFreight) || (netUnitPrice + freightPerUnit);
+        let netTotal = roundTax(qty * netUnitPrice);
+        let finalTotal = roundTax(qty * unitPlusFreight);
+
+        itemsTableHtml += `<tr class="border-b">
+            <td class="p-2 font-medium">${it.name || '-'}</td>
+            <td class="p-2 text-right font-bold">${qty.toLocaleString()} ${it.unit || ''}</td>
+            ${isAdmin ? `<td class="p-2 text-right text-indigo-700">${netUnitPrice.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>` : ''}
+            ${isAdmin ? `<td class="p-2 text-right">${netTotal.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>` : ''}
+            ${isAdmin ? `<td class="p-2 text-right text-orange-600">${freightPerUnit.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>` : ''}
+            <td class="p-2 text-right font-bold text-green-900 bg-green-50">${unitPlusFreight.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
+            <td class="p-2 text-right font-bold text-green-950 bg-green-100">${finalTotal.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
+        </tr>`;
+    });
+
+    const truckPlanText = item.truckPlan || item.TruckPlan;
+
+    const contentHtml = `
+        <div class="border-b pb-3 text-center">
+            <h4 class="text-xl font-bold text-blue-900">ใบเสนอราคา (ประวัติย้อนหลัง)</h4>
+            <p class="text-xs text-gray-500">บันทึกเมื่อ: ${item.timestamp || item.Timestamp || '-'}</p>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 bg-gray-50 p-3 rounded-lg text-xs">
+            <div><span class="text-gray-500 block">โครงการ:</span><b class="text-blue-900">${item.project || item.Project || '-'}</b></div>
+            <div><span class="text-gray-500 block">ลูกค้า:</span><b>${item.customerCompany || item.CustomerCompany || '-'}</b></div>
+            <div><span class="text-gray-500 block">กลุ่มลูกค้า:</span><b>${item.customerGroup || item.CustomerGroup || '-'}</b></div>
+            <div><span class="text-gray-500 block">ผู้จัดทำ:</span><b>${item.sale || item.Sale || item.username || '-'}</b></div>
+            <div><span class="text-gray-500 block">โรงงาน:</span><b>${item.factory || item.Factory || '-'}</b></div>
+            <div><span class="text-gray-500 block">ประเภทจัดส่ง:</span><b>${item.delivery || item.Delivery || '-'}</b></div>
+            <div><span class="text-gray-500 block">ปลายทาง:</span><b>${item.province || item.Province || '-'} / ${item.district || item.District || '-'}</b></div>
+            <div><span class="text-gray-500 block">จำนวนรถ:</span><b class="text-indigo-700">${item.totalTrucks || item.TotalTrucks || '-'} คัน (${item.truckType || item.TruckType || '-'})</b></div>
+            <div><span class="text-gray-500 block">ราคาน้ำมันอ้างอิง:</span><b class="text-amber-800">${item.fuelPrice || item.FuelPrice || '-'} บ./ล.</b></div>
+        </div>
+
+        <div>
+            <h5 class="font-bold text-xs mb-1 text-gray-700">รายการสินค้า</h5>
+            <div class="border rounded-lg overflow-x-auto">
+                <table class="w-full text-xs text-left">
+                    <thead class="bg-gray-100 text-gray-700">
+                        <tr>
+                            <th class="p-2">สินค้า</th>
+                            <th class="p-2 text-right">จำนวน</th>
+                            ${isAdmin ? '<th class="p-2 text-right">ราคา/หน่วย (บ.)</th>' : ''}
+                            ${isAdmin ? '<th class="p-2 text-right">มูลค่ารวม (บ.)</th>' : ''}
+                            ${isAdmin ? '<th class="p-2 text-right">ค่าส่ง/หน่วย (บ.)</th>' : ''}
+                            <th class="p-2 text-right bg-green-50 text-green-900 font-bold">ราคา/หน่วย+ขนส่ง</th>
+                            <th class="p-2 text-right bg-green-100 text-green-950 font-bold">ยอดเงินรวมสุทธิ (บ.)</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">${itemsTableHtml || '<tr><td colspan="7" class="p-4 text-center text-gray-400">ไม่มีรายละเอียดสินค้าที่บันทึกไว้</td></tr>'}</tbody>
+                </table>
+            </div>
+        </div>
+
+        ${truckPlanText && truckPlanText !== '-' ? `
+            <div>
+                <h5 class="font-bold text-xs mb-1 text-indigo-900">แผนการจัดเที่ยวรถ</h5>
+                <pre class="bg-gray-50 p-2.5 rounded-lg border text-[11px] font-sans text-gray-700 whitespace-pre-wrap">${truckPlanText}</pre>
+            </div>
+        ` : ''}
+
+        <div class="flex justify-end pt-2">
+            <div class="bg-gray-50 p-3 rounded-lg border w-full md:w-1/2 space-y-1.5 text-xs">
+                ${isAdmin ? `<div class="flex justify-between text-gray-600"><span>มูลค่าสินค้าสุทธิ:</span><span>${item.productNet || item.ProductNet || '-'}</span></div>` : ''}
+                ${isAdmin ? `<div class="flex justify-between text-gray-600"><span>ค่าขนส่งรวม:</span><span>${item.totalFreight || item.TotalFreight || '-'}</span></div>` : ''}
+                <div class="flex justify-between font-medium text-gray-800 border-t pt-1"><span>ยอดรวมก่อน VAT:</span><span>${item.beforeVat || item.BeforeVat || '-'}</span></div>
+                <div class="flex justify-between font-medium text-gray-800"><span>ภาษีมูลค่าเพิ่ม VAT 7%:</span><span>${item.vat || item.Vat || '-'}</span></div>
+                <div class="flex justify-between font-bold text-sm text-green-900 border-t pt-1.5 bg-green-50 p-2 rounded"><span>ยอดเงินที่ต้องชำระสุทธิ:</span><span>${item.grandTotal || item.GrandTotal || '-'}</span></div>
+            </div>
+        </div>
+    `;
+
+    document.getElementById('historyViewModalContent').innerHTML = contentHtml;
+    document.getElementById('historyViewModal').classList.remove('hidden');
+    document.getElementById('historyViewModal').classList.add('flex');
 }
 
 function closeHistoryViewModal() {
@@ -2125,39 +2138,40 @@ function closeHistoryViewModal() {
 }
 
 /**
- * ฟังก์ชันนำข้อมูลกลับมาแก้ไขตาม Index: คืนค่าทุกอย่างตามต้นฉบับเดิมของ User 100%
+ * ปรับปรุง Role Admin เข้าไปแก้ไข Record ของ User ให้คืนค่าทุกอย่างตามต้นฉบับเดิม 100%
  */
-function loadHistoryToEditByIndex(index) {
-    const item = window.currentDisplayedHistory[index];
+function loadHistoryToEdit(id) {
+    const item = globalHistory.find(h => h._histId === id) || 
+                 globalHistory.find((h, idx) => (h.id && h.id.toString() === id.toString()) || idx.toString() === id.toString() || ('hist_new_' + h.id) === id);
     if (!item) return alert('ไม่พบข้อมูลประวัติรายการนี้');
 
-    const projName = getHistField(item, ['project', 'Project'], 'ไม่มีชื่อ');
+    const projName = item.project || item.Project || 'ไม่มีชื่อ';
     if (!confirm(`คุณต้องการนำข้อมูลของโครงการ "${projName}" กลับมาแก้ไขในแบบฟอร์มหรือไม่?\nระบบจะดึงข้อมูลเดิมทั้งหมดรวมถึงประเภทรถและราคาตามต้นฉบับ`)) {
         return;
     }
 
     // 1. คืนค่าข้อมูลโครงการและกลุ่มลูกค้า
-    document.getElementById('projectName').value = getHistField(item, ['project', 'Project'], '');
-    document.getElementById('customerGroup').value = getHistField(item, ['customerGroup', 'CustomerGroup'], '');
-    document.getElementById('customerCompany').value = getHistField(item, ['customerCompany', 'CustomerCompany'], '');
+    document.getElementById('projectName').value = item.project || item.Project || '';
+    document.getElementById('customerGroup').value = item.customerGroup || item.CustomerGroup || '';
+    document.getElementById('customerCompany').value = item.customerCompany || item.CustomerCompany || '';
 
     // 2. คืนค่าราคาน้ำมัน
-    const fuelVal = parseFloat(getHistField(item, ['fuelPrice', 'FuelPrice'], 33.50)) || 33.50;
+    const fuelVal = parseFloat(item.fuelPrice || item.FuelPrice) || 33.50;
     document.getElementById('fuelPrice').value = fuelVal;
     document.getElementById('fuelBracketDisplay').innerText = getFuelBracketLabel(fuelVal);
 
     // 3. คืนค่าโรงงานต้นทาง
-    const factoryVal = getHistField(item, ['factory', 'Factory'], 'บางปะอิน');
+    const factoryVal = item.factory || item.Factory || 'บางปะอิน';
     document.getElementById('factory').value = factoryVal;
 
     // 4. คืนค่าจังหวัดและอำเภอ
-    const provVal = cleanLoc(getHistField(item, ['province', 'Province'], ''));
-    const distVal = cleanLoc(getHistField(item, ['district', 'District'], ''));
+    const provVal = cleanLoc(item.province || item.Province || '');
+    const distVal = cleanLoc(item.district || item.District || '');
     document.getElementById('province').value = provVal;
     document.getElementById('district').value = distVal;
 
     // 5. คืนค่าภาคการคำนวณราคา
-    const regionVal = getHistField(item, ['region', 'Region'], null);
+    const regionVal = item.region || item.Region;
     if (regionVal) {
         const regSel = document.getElementById('regionSelector');
         let regExists = false;
@@ -2169,7 +2183,7 @@ function loadHistoryToEditByIndex(index) {
     }
 
     // 6. คืนค่าประเภทการจัดส่ง
-    const delVal = getHistField(item, ['delivery', 'Delivery'], null);
+    const delVal = item.delivery || item.Delivery;
     if (delVal) {
         const delSel = document.getElementById('deliveryType');
         let delExists = false;
@@ -2181,7 +2195,7 @@ function loadHistoryToEditByIndex(index) {
     }
 
     // 7. คืนค่าเงื่อนไขการชำระเงิน
-    const payVal = getHistField(item, ['payment', 'Payment'], null);
+    const payVal = item.payment || item.Payment;
     if (payVal) {
         const paySel = document.getElementById('paymentCondition');
         let payExists = false;
@@ -2193,7 +2207,7 @@ function loadHistoryToEditByIndex(index) {
     }
 
     // 8. คืนค่าการกระจายค่าขนส่ง
-    const fModeVal = getHistField(item, ['freightMode', 'FreightMode'], 'all');
+    const fModeVal = item.freightMode || item.FreightMode || 'all';
     const fModeSel = document.getElementById('freightAllocationMode');
     let fModeExists = false;
     for (let opt of fModeSel.options) {
@@ -2203,7 +2217,7 @@ function loadHistoryToEditByIndex(index) {
     fModeSel.value = fModeVal;
 
     // 9. คืนค่าประเภทรถจัดบรรทุกให้ตรงตามต้นฉบับ 100%
-    const rawTruck = String(getHistField(item, ['truckType', 'TruckType'], '')).toLowerCase();
+    const rawTruck = (item.truckType || item.TruckType || '').toLowerCase();
     const is6w = rawTruck.includes('6') || rawTruck.includes('หก');
     const is10w = rawTruck.includes('10') || rawTruck.includes('สิบ');
     const isTrailer = rawTruck.includes('เทรลเลอร์') || rawTruck.includes('trailer');
@@ -2229,7 +2243,7 @@ function loadHistoryToEditByIndex(index) {
     // 10. คืนค่ารายการสินค้าในตะกร้าจากต้นฉบับเดิม
     let loadedCart = [];
     try {
-        let rc = getHistField(item, ['rawCart', 'RawCart', 'cartItems', 'CartItems'], null);
+        let rc = item.rawCart || item.RawCart || item.cartItems || item.CartItems;
         if (typeof rc === 'string') rc = JSON.parse(rc);
         if (typeof rc === 'string') rc = JSON.parse(rc);
         if (Array.isArray(rc) && rc.length > 0) {
@@ -2245,7 +2259,7 @@ function loadHistoryToEditByIndex(index) {
 
     if (loadedCart.length === 0) {
         try {
-            let resIt = getHistField(item, ['resultItems', 'ResultItems'], null);
+            let resIt = item.resultItems || item.ResultItems;
             if (typeof resIt === 'string') resIt = JSON.parse(resIt);
             if (typeof resIt === 'string') resIt = JSON.parse(resIt);
             if (Array.isArray(resIt) && resIt.length > 0) {
@@ -2264,27 +2278,23 @@ function loadHistoryToEditByIndex(index) {
     }
 
     if (loadedCart.length === 0) {
-        const rawNames = getHistField(item, ['productNames', 'ProductNames'], '');
+        const rawNames = item.productNames || item.ProductNames;
         if (rawNames && rawNames !== '-') {
             const sep = rawNames.includes('\n') ? '\n' : (rawNames.includes(' | ') ? ' | ' : ',');
             const names = rawNames.split(sep);
-            const rawQtys = getHistField(item, ['productQtys', 'ProductQtys'], '');
-            const rawPrices = getHistField(item, ['productNetPrices', 'ProductNetPrices'], '');
-            const rawFreights = getHistField(item, ['productFreightPerUnits', 'ProductFreightPerUnits'], '');
-
-            const qtys = rawQtys ? rawQtys.split(sep) : [];
-            const prices = rawPrices ? rawPrices.split(sep) : [];
-            const freights = rawFreights ? rawFreights.split(sep) : [];
+            const qtys = (item.productQtys || item.ProductQtys || '').split(sep);
+            const prices = (item.productNetPrices || item.ProductNetPrices || '').split(sep);
+            const freights = (item.productFreightPerUnits || item.ProductFreightPerUnits || '').split(sep);
 
             names.forEach((nm, idx) => {
-                let cleanNm = String(nm).replace(/\s\(\+แถม\s\d+\)$/, '').trim();
+                let cleanNm = nm.replace(/\s\(\+แถม\s\d+\)$/, '').trim();
                 if (!cleanNm || cleanNm === '-') return;
-                let freeMatch = String(nm).match(/\(\+แถม\s*(\d+)\)/);
+                let freeMatch = nm.match(/\(\+แถม\s*(\d+)\)/);
                 let freeVal = freeMatch ? parseInt(freeMatch[1]) : 0;
                 let pMatch = productData.find(p => p.name === cleanNm || cleanNm.includes(p.name));
-                let qVal = parseFloat(String(qtys[idx] || '0').replace(/[^\d\.]/g, '')) || 0;
-                let np = parseFloat(String(prices[idx] || '0').replace(/,/g, '')) || null;
-                let fr = parseFloat(String(freights[idx] || '0').replace(/,/g, '')) || null;
+                let qVal = parseFloat((qtys[idx] || '0').replace(/[^\d\.]/g, '')) || 0;
+                let np = parseFloat((prices[idx] || '0').replace(/,/g, '')) || null;
+                let fr = parseFloat((freights[idx] || '0').replace(/,/g, '')) || null;
 
                 if (pMatch && qVal > 0) {
                     loadedCart.push({
@@ -2336,7 +2346,7 @@ function loadHistoryToEditByIndex(index) {
             }
         });
         if (hasCustom) {
-            const rawTotalFreight = parseFloat(String(getHistField(item, ['totalFreight', 'TotalFreight'], '0')).replace(/[^\d\.]/g, '')) || 0;
+            const rawTotalFreight = parseFloat((item.totalFreight || item.TotalFreight || '0').replace(/[^\d\.]/g, '')) || 0;
             renderResultTable(rawTotalFreight);
         }
     }
@@ -2344,14 +2354,13 @@ function loadHistoryToEditByIndex(index) {
     alert('โหลดข้อมูลต้นฉบับสำเร็จเรียบร้อยแล้ว ทุกฟิลด์และประเภทรถตรงตามต้นฉบับเดิม');
 }
 
-function deleteHistoryItemByIndex(index) {
-    const item = window.currentDisplayedHistory[index];
-    if (!item) return;
-
+function deleteHistoryItem(id) {
     if (!confirm('คุณแน่ใจหรือไม่ว่าต้องการลบรายการประวัตินี้?')) return;
 
-    const histId = item._histId;
-    globalHistory = globalHistory.filter(h => h._histId !== histId && h.id !== item.id);
+    const item = globalHistory.find(h => h._histId === id) || 
+                 globalHistory.find((h, idx) => (h.id && h.id.toString() === id.toString()) || idx.toString() === id.toString() || ('hist_new_' + h.id) === id);
+
+    globalHistory = globalHistory.filter(h => h._histId !== id && h.id !== id);
     renderHistoryTable(globalHistory);
 
     const cached = localStorage.getItem('v3_system_cache');
@@ -2367,8 +2376,7 @@ function deleteHistoryItemByIndex(index) {
         method: 'POST',
         mode: 'cors',
         redirect: 'follow',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'deleteHistory', id: item.id || histId, project: getHistField(item, ['project', 'Project'], '') })
+        body: JSON.stringify({ action: 'deleteHistory', id: id, project: item ? (item.project || item.Project) : '' })
     })
     .then(r => r.json())
     .then(res => {
@@ -2408,7 +2416,6 @@ function handleChangePassword(event) {
         method: 'POST',
         mode: 'cors',
         redirect: 'follow',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ action: 'changePassword', username: currentUser.username, oldPassword: oldP, newPassword: newP })
     })
     .then(r => r.json())
